@@ -210,3 +210,43 @@ No full local `verify-all`, clean-checkout run, green CI run, evaluation, releas
 ### Next item selected by §10.1
 
 Push and obtain a green GitHub Actions run on the exact commit, which is the last outstanding Tier 0 exit criterion. Then enter Tier 1 and encode the seven domain invariants as typed, versioned contracts attacked by named property tests, beginning with I2 (quality gating as an unforgeable capability) and I4 (per-session calibration versioning), because measurement cannot be built correctly on top of either one being advisory.
+
+## 2026-08-10 13:25 PDT — Tier 0 exited; Tier 1 encodes I2, I3, and I4
+
+### Tier 0 exit evidence
+
+- GitHub Actions run **31427300557** passed `verify-all` on a clean checkout of commit `dade84b`, on `ubuntu-24.04` with the `.node-version` runtime, in 2m32s: <https://github.com/rishabhcli/hack-for-humanity-summer-2026/actions/runs/31427300557>. The two preceding runs on earlier commits had failed. This was the last outstanding Tier 0 exit criterion.
+
+### Behaviour delivered — invariants that are now machine-enforced
+
+Encoding strategy and its rejected alternatives are recorded in ADR-0005; the register mapping each invariant to its encoding, its named property tests, and its case counts is `docs/INVARIANTS.md`.
+
+- **I2 — a measurement is withheld when geometry or pose confidence fails.** Encoded as a capability token rather than as a check callers must remember. `evaluateTrialQuality` in `src/quality/trial-quality.ts` is the only mint of a `QualityAcceptance`; `recordTrial` in `src/measurement/trial-outcome.ts` requires one and re-verifies it against a module-private `WeakSet`. A caller who writes `as unknown as QualityAcceptance`, or who structurally clones a genuine acceptance, gets a withheld outcome. `TrialOutcome` has exactly two arms — measured and withheld — so there is no shape that reports a number with a caveat. Twelve distinct refusal codes, one per failing condition, each carrying the observed value, the violated bound, its unit, and a non-diagnostic message.
+- **I3 — improvement is reported only relative to declared measurement error.** Encoded by making the alternative unrepresentable: no arm of `ChangeVerdict` in `src/measurement/change-claim.ts` carries an observed change without the minimal detectable change it was judged against, and only `compareBlocks` — which requires a `RepeatabilityEstimate` per block — can produce the arm that asserts a change. `src/measurement/repeatability.ts` derives `MDC95 = 1.96 * sqrt(2) * SEM` from the sample (`n - 1`) standard deviation, and a two-block comparison combines both floors in quadrature. Reports constant, absolute, and variable error separately.
+- **I4 — neutral reference and calibration are versioned per session.** A neutral reference exists only as a `CalibrationRecord` in `src/protocol/calibration.ts`, built by `buildCalibrationRecord` (fresh, current algorithm version) or `restoreCalibrationRecord` (stored, any readable version, preserved rather than upgraded). Every measured outcome carries its `referenceDigest` and `sessionId`. `measuredTrialsFor` drops foreign-reference trials rather than pooling them, and `compareBlocks` refuses across calibration versions and across neutral references — satisfying `GOAL.md` Tier 5.3.
+- **Units are branded.** `src/measurement/units.ts` gives every scalar a unit in its type. A bare `number` cannot cross a domain boundary; the only way to obtain a branded value is to parse one, and parsing refuses non-numbers, `NaN`, the infinities, non-integers where a count is required, and out-of-range values.
+
+### Commands run and observed results
+
+- `npm run verify-all` — **passed all 12 steps** after the Tier 1 modules were added. Prior runs in this session failed at `check:build` (stale provenance after new source files) which was regenerated with `npm run evidence:build`; the artifact manifest was unchanged at `4750376cedb8e16a6a634bdc2afb131c62bface60490f5e8d8918bc1a2959f13`, only `sourceInputDigest` moved.
+- `npm test` — 11 files, 120 tests before the I3 modules; coverage on the configured `src/**/*.ts` scope was 99.16% statements, 100% branches, 97.14% functions, 100% lines against 90% thresholds.
+- `npm run typecheck`, `npm run lint` — clean. `boundary-check passed files=13 owned-areas=6 configured-domain-areas=5 existing-domain-areas=3`.
+
+### Two defects the gates caught, and what they revealed
+
+- ESLint's `no-unnecessary-condition` rejected `calibrationsAreComparable` because both operands were the literal type `1`, which made I4's cross-version refusal vacuously true. The record's `algorithmVersion` is now a plain number and a separate `restoreCalibrationRecord` preserves a stored version rather than upgrading it, so the refusal is now a real runtime question. The lint found a modelling error, not a style problem.
+- The `QualityAcceptance` brand was initially `declare const … : unique symbol`, which has no runtime value; using it as a computed key threw at runtime. It is now a real module-private `Symbol`. This surfaced that object spread copies own symbol properties, so a structural clone does carry the brand — which is exactly why the `WeakSet` registry, not the brand, is the authority. There is now a named test for the cloned-acceptance case.
+
+### What is now true that was not true before
+
+Three of the seven domain invariants are enforced by types and runtime boundary assertions rather than by convention, and each is attacked by named property tests with stated case counts totalling 11,300 generated cases across the three. `docs/INVARIANTS.md` records the remaining four as not encoded, with what each one needs.
+
+### Risks and honest limits
+
+- **I5 is recorded as partial, not done.** The quality gate refuses trials whose camera or torso motion exceeds the envelope, but nothing yet _computes_ that attribution — the observation arrives pre-attributed. Until `src/vision` exists, the invariant is enforced only against inputs that are already honest, which is not enforcement.
+- **The SEM estimator is single-session.** It captures trial-to-trial noise, not between-day variation in the neutral reference, and it has not been validated against a known-angle ground truth. The arithmetic is right; the inputs are unvalidated. No published number rests on it yet.
+- Acceptances are not serializable across a process boundary by design: the registry is in-memory and identity-keyed, so any future worker or storage boundary must re-run the gate rather than transporting a token.
+
+### Next item selected by §10.1
+
+Encode I1 and I7 together: a citation-gated clinical-threshold registry whose entries cannot be displayed until a human records having read the primary source, plus a build-time copy gate over every string literal in the shipped bundle. The 4.5 degree cutoff will enter the registry as **unverified** and therefore undisplayable, which is the truthful state until the primary source is actually read.
