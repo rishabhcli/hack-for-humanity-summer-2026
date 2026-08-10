@@ -96,3 +96,77 @@ The current Vitest percentage covers only the explicitly configured `src/**/*.ts
 ### Remaining truth and next §10.1 item
 
 Tier 0 is still open. The current working tree is uncommitted, no clean checkout or GitHub Actions run exists, per-direct dependency maintenance/security-history evidence is being made regenerable, the new TLS/private-path/build/lifecycle regressions need one coherent full rerun, and the coverage percentage remains product-source-scoped. The selected next item is to finish that dependency evidence, re-establish `dev:health`, run the hardened lifecycle and browser suites, then obtain clean-commit and CI evidence without claiming any production release gate.
+
+## 2026-08-10 08:27 PDT — Repository-wide progress audit and next-agent handoff
+
+### Baseline inspected
+
+- Audited clean `main` at `e9e707060d2cde288a05565e11bf3fc76132714d`, which matched `origin/main` before this documentation change.
+- Read the external requirements, selected-concept dossier, product contract, engineering rules, goal ladder, source tree, tests, scripts, evidence, ADRs, support matrix, assumptions, and blocker register.
+- No product name was assigned during this audit. No external blocker is recorded.
+- The status statements in the preceding journal entries are preserved as history. Their former “uncommitted/no CI run” state is superseded by the pushed foundation commit and the failed CI run recorded below.
+
+### Progress toward the seven-step user outcome
+
+| Canonical workflow step                                                | Current state   | Evidence and missing work                                                                                                    |
+| ---------------------------------------------------------------------- | --------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| 1. Calibrate camera, seating geometry, neutral pose, and quality       | Not implemented | The PWA only checks browser prerequisites. It does not request permission, open a stream, or create a versioned calibration. |
+| 2. Guide standardized rotations and eyes-closed return attempts        | Not implemented | `src/protocol` does not exist; there is no protocol state machine, timing, cueing, rest, cancellation, or recovery.          |
+| 3. Estimate head pose and reject torso/camera motion or low confidence | Not implemented | `src/vision` and `src/quality` do not exist; no landmark adapter, pose solver, motion separation, or refusal reason exists.  |
+| 4. Compute directional absolute error and trial reliability            | Not implemented | `src/measurement` does not exist; there is no angular-error, uncertainty, SEM, MDC, or repeatability implementation.         |
+| 5. Run a bounded training block                                        | Not implemented | No training protocol, progress state, symptom stop path, or completion evidence exists.                                      |
+| 6. Repeat measurement and compare change against measurement error     | Not implemented | No session-pair contract exists, and an improvement claim cannot be produced.                                                |
+| 7. Export a clinician-readable, non-diagnostic report                  | Not implemented | `src/report` does not exist; there is no session comparison, limitations record, accessible report, or explicit export.      |
+
+The only executable user-facing surface is the pre-measurement readiness shell in `src/main.ts` and `src/ui-accessibility`. Its refusal copy is intentional groundwork, not a measurement slice.
+
+### GOAL.md tier ledger
+
+| Tier                               | Status at this audit                          | Exit evidence still required                                                                                                                                               |
+| ---------------------------------- | --------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0 — Executable foundation          | **In progress; gate red**                     | Regenerate stale build evidence, obtain a green `verify-all` from a clean committed checkout, and obtain a green CI run.                                                   |
+| 1 — Machine-enforced invariants    | **Not entered**                               | Encode all seven invariants in domain contracts and attack each with the required property/fault/boundary evidence. Current UI copy is not enforcement.                    |
+| 2 — Hard technical core            | **Not entered**                               | Protocol, local pose estimation, quality gates, angular error/uncertainty, SEM/MDC, privacy proof, known-angle oracle, copy lint, citation gating, and report.             |
+| 3 — Adapters/trust boundaries      | **Not entered for product inputs**            | Camera/landmark/fixture schemas, provenance, limits, adapters, contract tests, and threat analyses. The Tier 0 dependency boundary does not satisfy this product tier.     |
+| 4 — First vertical slice           | **Not entered**                               | One real calibrated return-to-neutral outcome through UI/domain/adapters, including refusal, recovery, telemetry, and E2E evidence.                                        |
+| 5 — Refusal and honest failure     | **Groundwork only**                           | The readiness shell withholds unavailable work, but product quality, permission, calibration-version, cancellation, stale, partial, and recovery states do not exist.      |
+| 6 — Ownership-area build-out       | **Groundwork only in `src/ui-accessibility`** | `src/protocol`, `src/vision`, `src/measurement`, `src/quality`, and `src/report` remain deliberately absent until they own production behavior.                            |
+| 7 — Verification lattice           | **Foundation tests only**                     | The current 59 tests and lifecycle/browser suites exercise Tier 0. The nine required layers for the actual measurement workflow cannot pass while that workflow is absent. |
+| 8 — Evaluation/evidence            | **Not entered**                               | `npm run eval` correctly refuses because the fixture manifest is empty and the correctness oracle is unimplemented.                                                        |
+| 9 — Performance/resilience         | **Not entered for the product**               | No frame, latency, memory, protocol-timing, load, or fault-injection budgets exist for a measurement session.                                                              |
+| 10 — Security/privacy/supply chain | **Tier 0 groundwork only**                    | Exact dependencies, SBOM, and a dependency-network threat model exist; product camera/frame/storage/privacy and authorization surfaces remain unaudited or absent.         |
+| 11 — Operational readiness         | **Local groundwork only**                     | Authenticated local health and process ownership exist; production config, SLOs, telemetry destination, deployment, rollback, emergency disable, and drills do not.        |
+| 12 — Production cutover/soak       | **Not entered**                               | None of the 18 production conditions in `GOAL.md` §5 has been established as a complete set.                                                                               |
+| 13 — Submission artifact           | **Draft shell only**                          | Devpost draft `1131640` exists without a product name; release-derived copy, links, gallery, video, finalization, and claim audit remain.                                  |
+
+Cross-cutting groundwork is listed so it is not lost, but it is not credited as a tier exit.
+
+### Release-gate ledger
+
+| Gate                                                       | Status         | Why it is not passed                                                                                                                                                  |
+| ---------------------------------------------------------- | -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| G1. Known-angle error and repeatability targets            | **Not passed** | Fixture manifest contains zero validated media; no pose solver, correctness oracle, device matrix, or repeatability result exists.                                    |
+| G2. Poor-quality trials fail closed                        | **Not passed** | No trial or distance/lighting/occlusion/yaw/roll/pose-confidence quality gate exists.                                                                                 |
+| G3. Change claims use validated uncertainty                | **Not passed** | No measurement, uncertainty propagation, SEM, MDC, session pair, or change-claim contract exists.                                                                     |
+| G4. Privacy/no-frame-upload                                | **Not passed** | The readiness E2E check rejects third-party requests, but the runtime does not open a camera or process frames, so it cannot prove the future frame path stays local. |
+| G5. Clinical copy/source review                            | **Not passed** | Non-diagnostic limitation copy exists, but no authoritative threshold registry, content gate, or completed clinical/source review exists.                             |
+| G6. End-to-end protocol and accessible report user testing | **Not passed** | Neither the protocol nor report exists, and no non-author user session has been recorded.                                                                             |
+
+### Commands and evidence observed during this audit
+
+- `git fetch origin main` — local and remote both resolved to `e9e707060d2cde288a05565e11bf3fc76132714d` before documentation edits.
+- `gh run view 31402823988 --log-failed` — the first GitHub Actions run on the foundation commit failed. Format, lint/boundaries, dependency evidence, `npm audit` (0 reported vulnerabilities), typecheck, 6 test files/59 tests, product-source-scoped 100% coverage, and the initial build passed. Verification then stopped at `check:build` with `BUILD_REPRODUCIBILITY_EVIDENCE_STALE`; integration, health, and E2E were not reached in CI. Run: <https://github.com/rishabhcli/hack-for-humanity-summer-2026/actions/runs/31402823988>.
+- `npm run dev:health` — exited 0 on the development host while the repository-owned listeners occupied `127.0.0.1:4180-4183`.
+- `npm run check:build` — produced identical files across its two local builds, then failed on the same stale-evidence check. The output manifest still matched committed digest `4750376cedb8e16a6a634bdc2afb131c62bface60490f5e8d8918bc1a2959f13`; the committed evidence records source-input digest `ee63b024e3f760b90eb23a86d89ab11fbb60825a9de6d9c2b466a7ad8bc7af2d`, while current sources compute `8cda57f7f19fc3f0b99ef2556807a12b8e04ecd8b44d090bf109cee8eb0f1a02`. This is a stale provenance artifact after source/control-plane edits, not evidence that the two builds differed.
+- `npm run format`, `npm run lint`, `npm run typecheck`, and `npm run test:unit` — passed after the documentation edits; the unit run passed the same 6 files/59 tests. A repository-relative Markdown-link audit also found no missing local target across the 14 tracked Markdown files.
+
+No full local `verify-all`, clean-checkout run, green CI run, evaluation, release check, or production release gate is claimed by this audit.
+
+### Risks, rollback, and exact next work
+
+- **Immediate queue item 1:** re-run `npm run dev:health` at the start of the next turn because it is the standing gate and process state can drift.
+- **Immediate queue item 2:** on the reference Node `24.19.0`/npm `11.17.0` toolchain, inspect and regenerate `evidence/tier-0/build-reproducibility.json` with `npm run evidence:build`; confirm the only intended provenance change and keep the artifact manifest deterministic.
+- **Immediate queue item 3:** run `npm run verify-all` from the resulting clean committed checkout. Do not bypass `check:build`, narrow its inputs, or treat an evidence rewrite as proof by itself.
+- **Immediate queue item 4:** push the correction and require a green GitHub Actions run on the exact commit. Record its URL and observed step results here.
+- **Then select Tier 1:** encode the seven domain invariants as typed, versioned contracts with property and failure-path tests before adding an impressive UI or camera workflow. Tier 2 should begin with the documented kill test for the pose/known-angle accuracy assumption before broad feature work.
+- No data migration applies because no product session store exists. Documentation-only rollback is a normal revert of the documentation commit. Runtime/evidence corrections must preserve the PID ownership, port, privacy, and fail-closed boundaries already established.

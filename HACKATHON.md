@@ -1,8 +1,10 @@
 # Hack for Humanity | Summer 2026
 
 > Reference dossier for the Devpost hackathon this repo submits to.
-> Generated Aug 9, 5:19 PM PT. Devpost account `risban933`.
-> **This repo has no project name and no code yet by design.**
+> Captured Aug 9, 2026 at 5:19 PM PT from Devpost account `risban933`.
+> **Snapshot note:** form contents and relative countdowns below reflect that capture time. The
+> repository still has no assigned product name; current implementation status belongs in
+> [PROGRESS.md](./PROGRESS.md).
 
 ## At a glance
 
@@ -11,7 +13,7 @@
 | **Hackathon** | Hack for Humanity | Summer 2026 |
 | **Devpost URL** | https://hack-for-humanity-summer-26.devpost.com/ |
 | **Devpost challenge ID** | 29151 |
-| **Submission deadline** | **Sep 4, 8:45 PM PT** (26 days out) |
+| **Submission deadline** | **Sep 4, 8:45 PM PT** |
 | **Deadline (ISO)** | 2026-09-04T23:45:00-04:00 |
 | **Prize pool (as listed)** | $600 |
 | **Registration status** | ✅ Registered |

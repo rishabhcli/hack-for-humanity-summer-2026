@@ -1,6 +1,8 @@
 # Hack for Humanity | Summer 2026: Winning Idea Dossier
 
-> **Status:** Idea selected; no product name assigned; no implementation started.
+> **Status:** Concept selected; no product name assigned. This is the technical blueprint, not a
+> live status page; see [PROGRESS.md](./PROGRESS.md) for implementation evidence and the next work
+> item.
 > **Submission deadline:** September 4, 2026 at 8:45 PM PT.
 > **Ground truth:** [HACKATHON.md](./HACKATHON.md) remains authoritative for rules, form fields, eligibility, and links.
 

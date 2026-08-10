@@ -6,16 +6,38 @@
 
 ## Repository status
 
-The Tier 0 executable foundation is under active implementation. A truthful browser-readiness surface and the repository-isolated HTTPS development lifecycle exist, but camera measurement, calibration, the protocol, validation fixtures, and every production release gate remain unimplemented. The repository is **not yet in production**.
+The Tier 0 executable foundation exists but has not exited its gate. The repository has a truthful browser-readiness PWA, an isolated HTTPS lifecycle, strict checks, dependency/SBOM evidence, and CI configuration. The latest canonical verification is red because the committed build-reproducibility evidence is stale relative to the current source inputs. Camera access, pose estimation, calibration, the protocol, measurements, validated fixtures, session comparison, and reporting are not implemented. No production release gate has passed, and the repository is **not yet in production**.
 
-| Document | Authority |
+For the exact failing command, current tier-by-tier assessment, and ordered handoff queue, read the latest entry in [PROGRESS.md](./PROGRESS.md) before selecting work.
+
+### Documentation map
+
+| Document | Purpose and authority |
 |---|---|
-| [HACKATHON.md](./HACKATHON.md) | Eligibility, mandatory submission fields, judging criteria, deadlines, links |
-| [WINNING_IDEA.md](./WINNING_IDEA.md) | Selected concept, hard technical core, validation, build order, demo and risk analysis |
-| [README.md](./README.md) | Product contract, architecture, production and release expectations |
-| [AGENTS.md](./AGENTS.md) | Binding implementation rules for every coding agent working in this repository |
+| [HACKATHON.md](./HACKATHON.md) | Captured external requirements: eligibility, submission fields, judging, deadline, and links |
+| [WINNING_IDEA.md](./WINNING_IDEA.md) | Selected concept, hard technical core, validation, build order, demo, and risk analysis |
+| [README.md](./README.md) | Production product, architecture, operating contract, and release expectations |
+| [AGENTS.md](./AGENTS.md) | Binding implementation discipline and definition of done |
+| [GOAL.md](./GOAL.md) | Tier 0-13 ladder, production definition, work-selection order, and journal protocol |
+| [PROGRESS.md](./PROGRESS.md) | Append-only evidence journal and current handoff to the next agent |
+| [SUPPORT_MATRIX.md](./SUPPORT_MATRIX.md) | Supported and unsupported environments and measurement surfaces |
+| [ASSUMPTIONS.md](./ASSUMPTIONS.md) | Decisions made without user input and their cheapest later verification |
+| [BLOCKED.md](./BLOCKED.md) | External blockers only, including the exact request that would unblock them |
+| [`adr/`](./adr/) | Accepted architecture decisions, consequences, and reversal paths |
+| [`docs/`](./docs/) | Dependency register and boundary-specific threat analyses |
+| [`evidence/`](./evidence/) | Regenerable artifacts; never a substitute for a currently green command |
 
 If these documents disagree, preserve the external requirements in HACKATHON.md, then the product intent in WINNING_IDEA.md, and resolve the conflict explicitly in an ADR instead of guessing.
+
+### What is executable today
+
+| Surface | Current behavior | What it does not prove |
+|---|---|---|
+| Browser PWA shell | Shows non-diagnostic safety copy and checks secure context, camera API availability, session storage, and reduced-motion preference | It does not request camera permission, read frames, calibrate geometry, or produce a measurement |
+| Local runtime | Owns HTTPS services on `127.0.0.1:4180-4183`, authenticates semantic readiness, and stops only processes it can revalidate as repository-owned | It is not a deployed or publicly trusted production environment |
+| Verification foundation | Runs format, lint/boundary rules, dependency evidence, audit, type checks, unit/property tests, reproducible build checks, lifecycle integration, and browser checks | The current full pipeline is red, and these foundation checks do not validate the absent measurement workflow |
+| Fixture service | Serves a versioned manifest and reports `corpusReady: false` while it is empty | No known-angle fixture, correctness oracle, device result, or repeatability result exists |
+| Release/evaluation commands | Refuse with stable error codes when fixtures, algorithms, gate evidence, or production audit are missing | A deliberate refusal is not a passed evaluation or release gate |
 
 ## Product contract
 
@@ -172,12 +194,13 @@ The checked-in npm scripts and Makefile expose the command surface below. `eval`
 | `format` | Check committed files against the repository Prettier policy without rewriting them |
 | `lint` | Run static lint plus source-ownership, import-boundary, and cycle checks |
 | `typecheck` | Type-check browser, tooling, and checked JavaScript configurations without emitting files |
-| `check` | Format check, lint, type/static analysis, schema/config validation |
+| `check` | Format, lint/boundary, type, port/lifecycle preflight, and committed dependency-evidence checks |
 | `test` | Deterministic unit and property suites |
 | `test-integration` | Real boundary tests using isolated local/test dependencies |
 | `test-e2e` | Supported user workflows and failure states |
 | `eval` | Reproduce committed domain evaluation and metrics |
 | `build` | Produce release artifacts from a clean checkout |
+| `dev:up` / `dev:health` / `dev:down` | Start, semantically verify, and stop only the repository-owned local service cohort |
 | `run-local` | Start the complete local system or a documented production-equivalent subset |
 | `verify-all` | Run the canonical ordered local verification pipeline, including lifecycle and browser checks |
 | `release-check` | Run all blocking gates, artifact/SBOM generation, and policy checks |
@@ -186,7 +209,7 @@ A new contributor should be able to move from a clean checkout to a verified loc
 
 ### Clean-checkout verification
 
-Use Node.js `24.19.0` and its bundled npm `11.17.0`; both are checked before npm runs a repository script. The local lifecycle also requires `git`, `lsof`, and OpenSSL on macOS or Linux. Then run:
+Use the reference runtime Node.js `24.19.0` with npm `11.17.0`. Local development accepts Node `>=24.19.0 <27`, but CI and release evidence use the reference version; npm is exact in every environment. The local lifecycle also requires `git`, `lsof`, and OpenSSL on macOS or Linux. Then run:
 
 ```sh
 npm run bootstrap
