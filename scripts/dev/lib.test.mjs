@@ -18,6 +18,7 @@ import {
   ensureDevDirectories,
   expectedProcessCommand,
   fileDigest,
+  formatErrorChain,
   isValidPidRecord,
   isExclusiveLoopbackListener,
   parseLsofListenerRecords,
@@ -193,5 +194,29 @@ describe('listener inspection', () => {
     ).toBe(true);
     expect(isExclusiveLoopbackListener(records.slice(0, 2), 12_345, 4180)).toBe(false);
     expect(isExclusiveLoopbackListener(records, 12_345, 4180)).toBe(false);
+  });
+});
+
+describe('readiness failure diagnostics', () => {
+  it('flattens a cause chain so a readiness failure names its underlying reason', () => {
+    const root = new Error('ECONNREFUSED 127.0.0.1:4181');
+    const middle = new Error('DEV_APPLICATION_TIMEOUT service=preview', { cause: root });
+    const outer = new Error('DEV_HEALTH_DEADLINE service=preview attempts=5', { cause: middle });
+
+    expect(formatErrorChain(outer)).toBe(
+      'DEV_HEALTH_DEADLINE service=preview attempts=5 <- DEV_APPLICATION_TIMEOUT service=preview <- ECONNREFUSED 127.0.0.1:4181',
+    );
+  });
+
+  it('terminates on a self-referencing cause instead of looping forever', () => {
+    const looping = new Error('DEV_HEALTH_DEADLINE service=pwa');
+    looping.cause = looping;
+
+    expect(formatErrorChain(looping).split(' <- ')).toHaveLength(8);
+  });
+
+  it('describes a non-error rejection rather than printing an empty message', () => {
+    expect(formatErrorChain('socket hang up')).toBe('socket hang up');
+    expect(formatErrorChain(undefined)).toBe('');
   });
 });

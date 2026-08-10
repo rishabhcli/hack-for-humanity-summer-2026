@@ -49,3 +49,27 @@ This file records decisions made without user input. Each entry includes the che
 - **Decision:** the planned domain paths are reserved ownership areas in the boundary policy, but their physical directories are created only when a production slice supplies working code, tests, and documentation.
 - **Reason:** empty directories and placeholder files would imply implementation progress without an owned behavior, while the boundary checker can enforce the names independently of disk presence.
 - **Verify later:** when the first domain package is added, prove its ownership/import rules with boundary fixtures and the package's domain tests; do not add the other directories preemptively.
+
+## 2026-08-10 — Verification gates do not depend on third-party liveness
+
+- **Decision:** `verify-all` performs no network query whose result this repository does not control. The dependency-maintenance step validates the committed snapshot offline and bounds its age at 30 days; the online refresh is a separate explicit command. See ADR-0004.
+- **Reason:** the live byte-comparison turned every upstream publish into a red release gate, which was observed twice — in GitHub Actions run 31402823988 and in the first local `verify-all` of this session — while the repository itself was correct. A gate that fails for reasons outside the repository teaches its readers to ignore it.
+- **Verify later:** if a scheduled refresh ever reports drift that the offline validator would have accepted, tighten the validator rather than restoring the live comparison.
+
+## 2026-08-10 — The pinned Node runtime is fetched into `.dev/`, not installed system-wide
+
+- **Decision:** `.dev/toolchain/` holds the `.node-version` runtime (24.19.0), checksum-verified against the official `SHASUMS256.txt`, and local verification runs against it so the development host matches CI exactly.
+- **Reason:** the host default is Node 26.5.1 while CI resolves `.node-version`. Verifying on a different runtime than CI would make a green local run weak evidence. `.dev/` is git-ignored, so this does not alter any sibling repository or the machine's global toolchain.
+- **Verify later:** the build artifact manifest was observed identical under both 24.19.0 and 26.5.1 (`4750376cedb8e16a6a634bdc2afb131c62bface60490f5e8d8918bc1a2959f13`); re-check that equality after any Vite, Rollup, or esbuild upgrade rather than assuming it persists.
+
+## 2026-08-10 — Lifecycle ownership binds to the launching interpreter
+
+- **Decision:** every `dev:*` command in a session must run under the same Node binary, and that binary must be the `.node-version` runtime. `expectedProcessCommand` recomputes the canonical command from `process.execPath`, so a service started by one interpreter is correctly refused as unowned by another.
+- **Reason:** observed as `PID_RECORD_INVALID service=fixtures` when services started by the host's Node 26.5.1 were inspected by the pinned Node 24.19.0. Failing closed is the correct behaviour: the alternative — trusting an interpreter path recorded inside the record being validated — would let a forged record nominate its own authority.
+- **Verify later:** if a repository-pinned interpreter path is ever resolved explicitly rather than inherited from `process.execPath`, it must be derived from committed configuration and still cross-checked against the live process, never read from the PID record.
+
+## 2026-08-10 — Readiness deadline widened to 60s on a sixteen-session host, with the failure made self-describing
+
+- **Decision:** `waitForHealth` polls for 60 seconds rather than 30, records every failed attempt to `.dev/logs/health.log`, and its terminal `DEV_HEALTH_DEADLINE` now names the attempt count and every distinct failure reason observed. All lifecycle entry points print the full `cause` chain via `formatErrorChain`.
+- **Reason:** one `verify-all` run failed with a bare `DEV_HEALTH_DEADLINE service=preview` immediately after the integration suite's restore, then passed seconds later and in 12 consecutive reruns. The cause was undiagnosable because the message discarded its chain. The widened bound reflects a host shared by sixteen concurrent agent sessions; the gate still fails closed, and no failing check was skipped or quarantined.
+- **Verify later:** the root cause is **not** identified. When `DEV_HEALTH_DEADLINE` next occurs, read `.dev/logs/health.log` for the recorded per-attempt reasons and fix that cause rather than widening the bound again. Widening past 60s without a named reason is prohibited.

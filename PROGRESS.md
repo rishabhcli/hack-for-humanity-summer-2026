@@ -170,3 +170,43 @@ No full local `verify-all`, clean-checkout run, green CI run, evaluation, releas
 - **Immediate queue item 4:** push the correction and require a green GitHub Actions run on the exact commit. Record its URL and observed step results here.
 - **Then select Tier 1:** encode the seven domain invariants as typed, versioned contracts with property and failure-path tests before adding an impressive UI or camera workflow. Tier 2 should begin with the documented kill test for the pose/known-angle accuracy assumption before broad feature work.
 - No data migration applies because no product session store exists. Documentation-only rollback is a normal revert of the documentation commit. Runtime/evidence corrections must preserve the PID ownership, port, privacy, and fail-closed boundaries already established.
+
+## 2026-08-10 12:45 PDT — First green canonical verification; two defective gates repaired
+
+### Behaviour delivered
+
+- **The dependency-maintenance release gate no longer depends on third-party liveness.** `--check` previously re-queried the npm registry and OSV on every run and byte-compared the live result against the committed artifact, so `verify-all` went red whenever any of the twelve direct dependencies published anything, and required network reachability to two third parties. It now validates the committed snapshot **offline** against the committed `package.json` and against itself: canonical serialization, exact dependency set and versions, and every derived field recomputed rather than trusted — release age from `snapshotAt` and the recorded publish timestamp, the maintenance bucket from that age, the repository URL from the recorded registry value, and the advisory summary from the advisory list. No recorded timestamp may postdate its own snapshot. Freshness is bounded by a 30-day maximum snapshot age instead of by upstream equality. Online refresh stays in `npm run evidence:dependency-maintenance` and is now also run weekly by a scheduled workflow. Recorded in ADR-0004.
+- **Two supply-chain findings now fail the gate closed** rather than being recorded as notes: a deprecated locked version (`DEPENDENCY_MAINTENANCE_LOCKED_VERSION_DEPRECATED`) and an advisory affecting the exact locked version that has not been withdrawn (`DEPENDENCY_MAINTENANCE_ADVISORY_UNRESOLVED`).
+- **Readiness failures are now diagnosable.** `DEV_HEALTH_DEADLINE` previously discarded its `cause`, so a real hang and a transient slow start were indistinguishable after the fact. `waitForHealth` now records every failed attempt to `.dev/logs/health.log`, names the attempt count and every distinct failure reason in its terminal error, and logs a `recovered` line when a later attempt succeeds. All four `dev:*` entry points print the full cause chain through the new `formatErrorChain`.
+- **The pinned Node runtime is now used for local verification.** `.dev/toolchain/` holds Node 24.19.0 from `.node-version`, checksum-verified against the official `SHASUMS256.txt`, so local runs match CI's runtime exactly.
+
+### Commands run and observed results
+
+- `npm run dev:health` — initially failed `DEV_HEALTH_ARTIFACT_STALE service=pwa`; `npm run dev:up` rebuilt and restarted, after which all four services on `127.0.0.1:4180-4183` reported ready.
+- `npm run evidence:build` under Node 24.19.0 — regenerated the stale provenance. The artifact manifest was **identical** under Node 24.19.0 and Node 26.5.1 (`4750376cedb8e16a6a634bdc2afb131c62bface60490f5e8d8918bc1a2959f13`, 8 files, 36,823 bytes); only `sourceInputDigest` changed, `ee63b024…` → `8cda57f7…`. `npm run check:build` then passed under both runtimes.
+- `npm run verify-all` — three runs. The first failed at `check:dependencies` (`DEPENDENCY_MAINTENANCE_EVIDENCE_STALE`). The second failed at `test-integration` with `PID_RECORD_INVALID service=fixtures`, because the running services had been started by the host's Node 26.5.1 while the check ran under the pinned Node 24.19.0 — ownership binds to the launching interpreter and correctly refused. After stopping them with the interpreter that started them and restarting under the pinned one, the third run **passed all 12 steps**: format, lint, check:dependencies, audit:dependencies, typecheck, test, build, check:build, test-integration, dev:preflight, dev:health, test:e2e:runner.
+- `npm run test:unit` — 7 files, 83 tests, up from 6 files/59 tests. The 21 new dependency-evidence tests and 3 new readiness-diagnostic tests are included.
+- `npm run test-integration` — passed all 13 cases: tls-mismatch-recovery, log-symlink-refusal, serialized-lock, stale-pid, forged-same-cwd-pid, wrong-ownership-environment, foreign-listener, health-timeout, retention, stale-artifact-health, artifact-drift-restart, owned-down, restore.
+- `npm run test:e2e:runner` — 5 Playwright checks passed, including the offline PWA check and the no-third-party-request check.
+
+### Evidence produced
+
+- `evidence/tier-0/build-reproducibility.json` — regenerated by `npm run evidence:build`; now consistent with current sources.
+- `evidence/tier-0/dependency-maintenance.json` — regenerated by `npm run evidence:dependency-maintenance` at `2026-08-10T19:22:45.505Z`; validated offline with zero unresolved advisories and zero deprecated locked versions across all 12 direct dependencies.
+- `.dev/logs/verify-all-session.log` — the green 12-step run. Not commit evidence: `evidence/tier-0/verify-all-local.log` is still absent and must be regenerated by `npm run evidence:verify` from a clean committed tree.
+- `.dev/logs/health.log` — new per-attempt readiness diagnostics.
+
+### What is now true that was not true before
+
+`verify-all` passes end to end on the development host for the first time, and it no longer contains a step that can fail because of a third party's release schedule. Two gates that were previously unfalsifiable-in-practice now have named tests that attack them.
+
+### Risks, migration, rollback, blockers
+
+- **Unresolved:** one `verify-all` run failed with a bare `DEV_HEALTH_DEADLINE service=preview` immediately after the integration suite's restore, then passed seconds later and in 12 consecutive reruns. **The root cause is not identified.** The deadline was widened 30s → 60s for a host shared by sixteen concurrent agent sessions, and the failure now records its own reasons; the next occurrence must be diagnosed from `.dev/logs/health.log` rather than widened again. No test was skipped, quarantined, or marked flaky.
+- The 30-day snapshot bound means an untouched repository fails `verify-all` until the snapshot is refreshed. That is intended, and the weekly scheduled workflow keeps the refresh cadence well inside the bound.
+- No product data exists, so there is no migration. Rollback is a normal revert; reverting ADR-0004 would reintroduce nondeterministic verification and needs its own ADR.
+- No external blocker.
+
+### Next item selected by §10.1
+
+Push and obtain a green GitHub Actions run on the exact commit, which is the last outstanding Tier 0 exit criterion. Then enter Tier 1 and encode the seven domain invariants as typed, versioned contracts attacked by named property tests, beginning with I2 (quality gating as an unforgeable capability) and I4 (per-session calibration versioning), because measurement cannot be built correctly on top of either one being advisory.

@@ -1,0 +1,52 @@
+name: dependency-drift
+
+# The committed dependency-maintenance snapshot is validated offline by `verify-all` and expires
+# after MAX_SNAPSHOT_AGE_DAYS (30). This job refreshes it against the live npm registry and OSV on a
+# cadence well inside that bound, so expiry is an alarm rather than routine noise, and so a newly
+# published advisory against a locked version surfaces here before it blocks a release gate.
+on:
+  schedule:
+    - cron: '17 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  refresh-snapshot:
+    name: refresh dependency maintenance snapshot
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install pinned Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          cache: npm
+          node-version-file: .node-version
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Refresh the snapshot from the live registry and advisory database
+        run: npm run evidence:dependency-maintenance
+
+      - name: Fail on a deprecated locked version or an unresolved advisory
+        run: node scripts/dependency-maintenance-evidence.mjs --check
+
+      - name: Report drift against the committed snapshot
+        run: git --no-pager diff --stat -- evidence/tier-0/dependency-maintenance.json
+
+      - name: Upload the refreshed snapshot for committing
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          if-no-files-found: error
+          name: dependency-maintenance-${{ github.run_id }}-${{ github.run_attempt }}
+          path: evidence/tier-0/dependency-maintenance.json
+          retention-days: 14

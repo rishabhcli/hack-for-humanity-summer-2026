@@ -6,6 +6,7 @@ import {
   desiredArtifactDigest,
   ensureCertificate,
   fileDigest,
+  formatErrorChain,
   healthRequest,
   isOwnedProcess,
   listenerPids,
@@ -74,7 +75,7 @@ try {
   }
   console.log('dev:up ready repository=hack-for-humanity-summer-2026');
 } catch (error) {
-  console.error(error instanceof Error ? error.message : String(error));
+  console.error(formatErrorChain(error));
   for (const record of [...startedRecords].reverse()) {
     try {
       const definition = serviceDefinitions().find((candidate) => candidate.id === record.service);
@@ -82,7 +83,7 @@ try {
         await stopOwnedRecord(definition, record);
       }
     } catch (cleanupError) {
-      console.error(cleanupError instanceof Error ? cleanupError.message : String(cleanupError));
+      console.error(formatErrorChain(cleanupError));
     }
   }
   process.exitCode = 1;

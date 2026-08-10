@@ -1,17 +1,36 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { REPOSITORY_ROOT } from './npm-environment.mjs';
 
-const NPM_REGISTRY_ORIGIN = 'https://registry.npmjs.org';
-const OSV_QUERY_URL = 'https://api.osv.dev/v1/query';
+export const NPM_REGISTRY_ORIGIN = 'https://registry.npmjs.org';
+export const OSV_QUERY_URL = 'https://api.osv.dev/v1/query';
+export const MILLISECONDS_PER_DAY = 24 * 60 * 60 * 1_000;
+
+/**
+ * The committed snapshot is the immutable input this gate validates against. The npm registry and
+ * the OSV database are mutable third parties, so re-querying them inside `--check` would make
+ * `verify-all` fail whenever an unrelated upstream package publishes. Freshness is instead bounded
+ * by this maximum age, which depends only on the committed timestamp and the current clock.
+ */
+export const MAX_SNAPSHOT_AGE_DAYS = 30;
+
+export const MAINTENANCE_BUCKETS = [
+  'latest-stable-published-within-90-days',
+  'latest-stable-published-within-180-days',
+  'latest-stable-published-within-365-days',
+  'no-stable-release-published-within-365-days',
+];
+
+export const EVIDENCE_COMMAND = 'npm run evidence:dependency-maintenance';
+export const SCHEMA_VERSION = 1;
+
 const NETWORK_TIMEOUT_MS = 30_000;
 const REGISTRY_RESPONSE_LIMIT_BYTES = 64 * 1024 * 1024;
 const OSV_RESPONSE_LIMIT_BYTES = 4 * 1024 * 1024;
 const MAX_OSV_PAGES = 20;
 const REGISTRY_CONCURRENCY = 3;
-const MILLISECONDS_PER_DAY = 24 * 60 * 60 * 1_000;
-const outputPath = resolve(REPOSITORY_ROOT, 'evidence', 'tier-0', 'dependency-maintenance.json');
 
 /** @typedef {Record<string, unknown>} JsonObject */
 /**
@@ -21,23 +40,55 @@ const outputPath = resolve(REPOSITORY_ROOT, 'evidence', 'tier-0', 'dependency-ma
  */
 
 /** @param {unknown} value @param {string} code @returns {JsonObject} */
-function requireObject(value, code) {
+export function requireObject(value, code) {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
     throw new Error(code);
   }
   return /** @type {JsonObject} */ (value);
 }
 
-/** @param {unknown} value @param {string} code @returns {string} */
-function requireString(value, code) {
-  if (typeof value !== 'string' || value.trim() === '') {
+/** @param {unknown} value @param {string} code @returns {unknown[]} */
+export function requireArray(value, code) {
+  if (!Array.isArray(value)) {
     throw new Error(code);
   }
   return value;
 }
 
 /** @param {unknown} value @param {string} code @returns {string} */
-function requireTimestamp(value, code) {
+export function requireString(value, code) {
+  if (typeof value !== 'string' || value.trim() === '') {
+    throw new Error(code);
+  }
+  return value;
+}
+
+/** @param {unknown} value @param {string} code @returns {string | null} */
+export function requireNullableString(value, code) {
+  if (value === null) {
+    return null;
+  }
+  return requireString(value, code);
+}
+
+/** @param {unknown} value @param {string} code @returns {boolean} */
+export function requireBoolean(value, code) {
+  if (typeof value !== 'boolean') {
+    throw new Error(code);
+  }
+  return value;
+}
+
+/** @param {unknown} value @param {string} code @returns {number} */
+export function requireNonNegativeInteger(value, code) {
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) {
+    throw new Error(code);
+  }
+  return value;
+}
+
+/** @param {unknown} value @param {string} code @returns {string} */
+export function requireTimestamp(value, code) {
   const timestamp = requireString(value, code);
   if (Number.isNaN(Date.parse(timestamp))) {
     throw new Error(code);
@@ -45,26 +96,397 @@ function requireTimestamp(value, code) {
   return timestamp;
 }
 
-const checkMode = process.argv.includes('--check');
-const snapshotAt = (() => {
-  if (!checkMode) {
-    return new Date().toISOString();
+/** @param {unknown} value @param {string} code @returns {string | null} */
+export function requireNullableTimestamp(value, code) {
+  if (value === null) {
+    return null;
   }
-  if (!existsSync(outputPath)) {
-    throw new Error('DEPENDENCY_MAINTENANCE_EVIDENCE_MISSING');
+  return requireTimestamp(value, code);
+}
+
+/** @param {string} rawUrl @returns {string} */
+export function normalizeRepositoryUrl(rawUrl) {
+  let normalized = rawUrl.trim().replace(/^git\+/u, '');
+  normalized = normalized.replace(/^git:\/\/github\.com\//u, 'https://github.com/');
+  normalized = normalized.replace(/^ssh:\/\/git@github\.com\//u, 'https://github.com/');
+  normalized = normalized.replace(/^git@github\.com:/u, 'https://github.com/');
+  normalized = normalized.replace(/\.git$/u, '');
+  const url = new URL(normalized);
+  if (url.protocol !== 'https:') {
+    throw new Error(`DEPENDENCY_REPOSITORY_PROTOCOL_UNSUPPORTED protocol=${url.protocol}`);
   }
-  let existingValue;
-  try {
-    existingValue = JSON.parse(readFileSync(outputPath, 'utf8'));
-  } catch (error) {
-    throw new Error('DEPENDENCY_MAINTENANCE_EVIDENCE_JSON_INVALID', { cause: error });
+  return url.toString().replace(/\/$/u, '');
+}
+
+/** @param {number} ageDays @returns {string} */
+export function maintenanceWindow(ageDays) {
+  if (ageDays <= 90) {
+    return 'latest-stable-published-within-90-days';
   }
-  const existing = requireObject(existingValue, 'DEPENDENCY_MAINTENANCE_EVIDENCE_INVALID');
-  return requireTimestamp(
-    existing['snapshotAt'],
+  if (ageDays <= 180) {
+    return 'latest-stable-published-within-180-days';
+  }
+  if (ageDays <= 365) {
+    return 'latest-stable-published-within-365-days';
+  }
+  return 'no-stable-release-published-within-365-days';
+}
+
+/** @param {string} snapshotAt @param {string} publishedAt @returns {number} */
+export function elapsedWholeDays(snapshotAt, publishedAt) {
+  return Math.max(
+    0,
+    Math.floor((Date.parse(snapshotAt) - Date.parse(publishedAt)) / MILLISECONDS_PER_DAY),
+  );
+}
+
+/** @param {unknown} value @returns {unknown} */
+export function normalizeEvidence(value) {
+  if (Array.isArray(value)) {
+    return value.map((entry) => normalizeEvidence(entry));
+  }
+  if (typeof value === 'object' && value !== null) {
+    return Object.fromEntries(
+      Object.entries(/** @type {JsonObject} */ (value))
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, entry]) => [key, normalizeEvidence(entry)]),
+    );
+  }
+  return value;
+}
+
+/** @param {unknown} evidence @returns {string} */
+export function serializeEvidence(evidence) {
+  return `${JSON.stringify(evidence, null, 2)}\n`;
+}
+
+/** @param {{devDependencies?: Record<string, string>}} manifest @returns {DirectDependency[]} */
+export function directDependenciesOf(manifest) {
+  const dependencies = Object.entries(manifest.devDependencies ?? {})
+    .map(([name, version]) => ({ name, version }))
+    .sort((left, right) => left.name.localeCompare(right.name));
+  if (dependencies.length === 0) {
+    throw new Error('DEPENDENCY_MAINTENANCE_DIRECT_SET_EMPTY');
+  }
+  return dependencies;
+}
+
+/**
+ * Validates a committed maintenance snapshot without any network access.
+ *
+ * Every derived field is recomputed from the snapshot's own recorded timestamps, so a hand-edited
+ * age, status bucket, or advisory summary fails here rather than being trusted.
+ *
+ * @param {unknown} rawEvidence parsed committed artifact
+ * @param {string} serializedText exact bytes of the committed artifact
+ * @param {{directDependencies: DirectDependency[], nowMilliseconds: number, repository: string}} expected
+ * @returns {{directDependencyCount: number, snapshotAgeDays: number, snapshotAt: string}}
+ */
+export function validateMaintenanceEvidence(rawEvidence, serializedText, expected) {
+  const evidence = requireObject(rawEvidence, 'DEPENDENCY_MAINTENANCE_EVIDENCE_INVALID');
+
+  if (serializeEvidence(normalizeEvidence(evidence)) !== serializedText) {
+    throw new Error(`DEPENDENCY_MAINTENANCE_EVIDENCE_NOT_CANONICAL run="${EVIDENCE_COMMAND}"`);
+  }
+  if (evidence['schemaVersion'] !== SCHEMA_VERSION) {
+    throw new Error('DEPENDENCY_MAINTENANCE_SCHEMA_VERSION_UNSUPPORTED');
+  }
+  if (evidence['command'] !== EVIDENCE_COMMAND) {
+    throw new Error('DEPENDENCY_MAINTENANCE_COMMAND_MISMATCH');
+  }
+  if (evidence['repository'] !== expected.repository) {
+    throw new Error('DEPENDENCY_MAINTENANCE_REPOSITORY_MISMATCH');
+  }
+  requireString(evidence['securityHistoryScope'], 'DEPENDENCY_MAINTENANCE_SECURITY_SCOPE_MISSING');
+
+  const policy = requireObject(
+    evidence['maintenanceStatusPolicy'],
+    'DEPENDENCY_MAINTENANCE_POLICY_MISSING',
+  );
+  const buckets = requireArray(policy['buckets'], 'DEPENDENCY_MAINTENANCE_POLICY_BUCKETS_INVALID');
+  if (JSON.stringify(buckets) !== JSON.stringify(MAINTENANCE_BUCKETS)) {
+    throw new Error('DEPENDENCY_MAINTENANCE_POLICY_BUCKETS_UNEXPECTED');
+  }
+  requireString(policy['basis'], 'DEPENDENCY_MAINTENANCE_POLICY_BASIS_MISSING');
+  requireString(policy['limitation'], 'DEPENDENCY_MAINTENANCE_POLICY_LIMITATION_MISSING');
+
+  const sources = requireObject(evidence['sources'], 'DEPENDENCY_MAINTENANCE_SOURCES_MISSING');
+  if (sources['osvQuery'] !== OSV_QUERY_URL) {
+    throw new Error('DEPENDENCY_MAINTENANCE_SOURCE_OSV_MISMATCH');
+  }
+  if (sources['npmRegistry'] !== `${NPM_REGISTRY_ORIGIN}/<encoded-package-name>`) {
+    throw new Error('DEPENDENCY_MAINTENANCE_SOURCE_REGISTRY_MISMATCH');
+  }
+
+  const snapshotAt = requireTimestamp(
+    evidence['snapshotAt'],
     'DEPENDENCY_MAINTENANCE_SNAPSHOT_TIMESTAMP_INVALID',
   );
-})();
+  const snapshotMilliseconds = Date.parse(snapshotAt);
+  if (snapshotMilliseconds > expected.nowMilliseconds) {
+    throw new Error(`DEPENDENCY_MAINTENANCE_SNAPSHOT_IN_FUTURE snapshot=${snapshotAt}`);
+  }
+  const snapshotAgeDays = Math.floor(
+    (expected.nowMilliseconds - snapshotMilliseconds) / MILLISECONDS_PER_DAY,
+  );
+  if (snapshotAgeDays > MAX_SNAPSHOT_AGE_DAYS) {
+    throw new Error(
+      `DEPENDENCY_MAINTENANCE_SNAPSHOT_EXPIRED ageDays=${String(snapshotAgeDays)} limit=${String(MAX_SNAPSHOT_AGE_DAYS)} run="${EVIDENCE_COMMAND}"`,
+    );
+  }
+
+  const recorded = requireArray(
+    evidence['dependencies'],
+    'DEPENDENCY_MAINTENANCE_DEPENDENCIES_MISSING',
+  );
+  if (evidence['directDependencyCount'] !== expected.directDependencies.length) {
+    throw new Error('DEPENDENCY_MAINTENANCE_DIRECT_COUNT_MISMATCH');
+  }
+  if (recorded.length !== expected.directDependencies.length) {
+    throw new Error(
+      `DEPENDENCY_MAINTENANCE_DEPENDENCY_SET_MISMATCH recorded=${String(recorded.length)} expected=${String(expected.directDependencies.length)}`,
+    );
+  }
+
+  for (const [index, expectedDependency] of expected.directDependencies.entries()) {
+    const entry = requireObject(
+      recorded[index],
+      `DEPENDENCY_MAINTENANCE_ENTRY_INVALID index=${String(index)}`,
+    );
+    const name = requireString(
+      entry['name'],
+      `DEPENDENCY_MAINTENANCE_NAME_MISSING index=${String(index)}`,
+    );
+    const version = requireString(
+      entry['version'],
+      `DEPENDENCY_MAINTENANCE_VERSION_MISSING name=${name}`,
+    );
+    if (name !== expectedDependency.name || version !== expectedDependency.version) {
+      throw new Error(
+        `DEPENDENCY_MAINTENANCE_DEPENDENCY_SET_MISMATCH recorded=${name}@${version} expected=${expectedDependency.name}@${expectedDependency.version}`,
+      );
+    }
+
+    validateRegistryEntry(entry['registry'], { name, snapshotAt, version });
+    validateAdvisoryEntry(entry['advisories'], { name, snapshotAt, version });
+  }
+
+  return {
+    directDependencyCount: expected.directDependencies.length,
+    snapshotAgeDays,
+    snapshotAt,
+  };
+}
+
+/** @param {unknown} rawRegistry @param {{name: string, snapshotAt: string, version: string}} context @returns {void} */
+function validateRegistryEntry(rawRegistry, context) {
+  const registry = requireObject(
+    rawRegistry,
+    `DEPENDENCY_MAINTENANCE_REGISTRY_MISSING name=${context.name}`,
+  );
+
+  const expectedEndpoint = `${NPM_REGISTRY_ORIGIN}/${encodeURIComponent(context.name)}`;
+  if (registry['registryEndpoint'] !== expectedEndpoint) {
+    throw new Error(`DEPENDENCY_MAINTENANCE_REGISTRY_ENDPOINT_MISMATCH name=${context.name}`);
+  }
+
+  const exactVersionPublishedAt = requireTimestamp(
+    registry['exactVersionPublishedAt'],
+    `DEPENDENCY_MAINTENANCE_EXACT_PUBLISHED_INVALID name=${context.name}`,
+  );
+  const registryModifiedAt = requireTimestamp(
+    registry['registryModifiedAt'],
+    `DEPENDENCY_MAINTENANCE_REGISTRY_MODIFIED_INVALID name=${context.name}`,
+  );
+  const snapshotMilliseconds = Date.parse(context.snapshotAt);
+  if (Date.parse(exactVersionPublishedAt) > snapshotMilliseconds) {
+    throw new Error(
+      `DEPENDENCY_MAINTENANCE_TIMESTAMP_AFTER_SNAPSHOT name=${context.name} field=exactVersionPublishedAt`,
+    );
+  }
+  if (Date.parse(registryModifiedAt) > snapshotMilliseconds) {
+    throw new Error(
+      `DEPENDENCY_MAINTENANCE_TIMESTAMP_AFTER_SNAPSHOT name=${context.name} field=registryModifiedAt`,
+    );
+  }
+
+  // A deprecated locked version is a supply-chain finding, not a note: fail closed.
+  if (
+    requireNullableString(
+      registry['deprecation'],
+      `DEPENDENCY_MAINTENANCE_DEPRECATION_INVALID name=${context.name}`,
+    ) !== null
+  ) {
+    throw new Error(
+      `DEPENDENCY_MAINTENANCE_LOCKED_VERSION_DEPRECATED name=${context.name} version=${context.version}`,
+    );
+  }
+
+  const latestStable = requireObject(
+    registry['latestStable'],
+    `DEPENDENCY_MAINTENANCE_LATEST_MISSING name=${context.name}`,
+  );
+  const latestVersion = requireString(
+    latestStable['version'],
+    `DEPENDENCY_MAINTENANCE_LATEST_VERSION_INVALID name=${context.name}`,
+  );
+  if (latestVersion.includes('-')) {
+    throw new Error(`DEPENDENCY_MAINTENANCE_LATEST_NOT_STABLE name=${context.name}`);
+  }
+  requireNullableString(
+    latestStable['deprecation'],
+    `DEPENDENCY_MAINTENANCE_LATEST_DEPRECATION_INVALID name=${context.name}`,
+  );
+  const latestPublishedAt = requireTimestamp(
+    latestStable['publishedAt'],
+    `DEPENDENCY_MAINTENANCE_LATEST_PUBLISHED_INVALID name=${context.name}`,
+  );
+  if (Date.parse(latestPublishedAt) > Date.parse(context.snapshotAt)) {
+    throw new Error(
+      `DEPENDENCY_MAINTENANCE_TIMESTAMP_AFTER_SNAPSHOT name=${context.name} field=latestStable.publishedAt`,
+    );
+  }
+
+  const observation = requireObject(
+    registry['maintenanceObservation'],
+    `DEPENDENCY_MAINTENANCE_OBSERVATION_MISSING name=${context.name}`,
+  );
+  requireString(
+    observation['basis'],
+    `DEPENDENCY_MAINTENANCE_OBSERVATION_BASIS_MISSING name=${context.name}`,
+  );
+  const recordedAgeDays = requireNonNegativeInteger(
+    observation['ageDaysAtSnapshot'],
+    `DEPENDENCY_MAINTENANCE_OBSERVATION_AGE_INVALID name=${context.name}`,
+  );
+  const recomputedAgeDays = elapsedWholeDays(context.snapshotAt, latestPublishedAt);
+  if (recordedAgeDays !== recomputedAgeDays) {
+    throw new Error(
+      `DEPENDENCY_MAINTENANCE_OBSERVATION_AGE_INCONSISTENT name=${context.name} recorded=${String(recordedAgeDays)} recomputed=${String(recomputedAgeDays)}`,
+    );
+  }
+  if (observation['status'] !== maintenanceWindow(recomputedAgeDays)) {
+    throw new Error(`DEPENDENCY_MAINTENANCE_OBSERVATION_STATUS_INCONSISTENT name=${context.name}`);
+  }
+
+  const repository = requireObject(
+    registry['repository'],
+    `DEPENDENCY_MAINTENANCE_REPOSITORY_ENTRY_MISSING name=${context.name}`,
+  );
+  const registryValue = requireString(
+    repository['registryValue'],
+    `DEPENDENCY_MAINTENANCE_REPOSITORY_VALUE_MISSING name=${context.name}`,
+  );
+  if (repository['url'] !== normalizeRepositoryUrl(registryValue)) {
+    throw new Error(`DEPENDENCY_MAINTENANCE_REPOSITORY_URL_INCONSISTENT name=${context.name}`);
+  }
+  requireNullableString(
+    repository['directory'],
+    `DEPENDENCY_MAINTENANCE_REPOSITORY_DIRECTORY_INVALID name=${context.name}`,
+  );
+}
+
+/** @param {unknown} rawAdvisories @param {{name: string, snapshotAt: string, version: string}} context @returns {void} */
+function validateAdvisoryEntry(rawAdvisories, context) {
+  const advisories = requireObject(
+    rawAdvisories,
+    `DEPENDENCY_MAINTENANCE_ADVISORIES_MISSING name=${context.name}`,
+  );
+  requireNonNegativeInteger(
+    advisories['pagesQueried'],
+    `DEPENDENCY_MAINTENANCE_ADVISORY_PAGES_INVALID name=${context.name}`,
+  );
+
+  const query = requireObject(
+    advisories['query'],
+    `DEPENDENCY_MAINTENANCE_ADVISORY_QUERY_MISSING name=${context.name}`,
+  );
+  if (
+    query['ecosystem'] !== 'npm' ||
+    query['endpoint'] !== OSV_QUERY_URL ||
+    query['name'] !== context.name ||
+    query['version'] !== context.version
+  ) {
+    throw new Error(`DEPENDENCY_MAINTENANCE_ADVISORY_QUERY_MISMATCH name=${context.name}`);
+  }
+
+  const entries = requireArray(
+    advisories['exactVersionAffectedAdvisories'],
+    `DEPENDENCY_MAINTENANCE_ADVISORY_LIST_INVALID name=${context.name}`,
+  );
+  /** @type {string[]} */
+  const identifiers = [];
+  /** @type {string[]} */
+  const unresolved = [];
+  for (const candidate of entries) {
+    const advisory = requireObject(
+      candidate,
+      `DEPENDENCY_MAINTENANCE_ADVISORY_ENTRY_INVALID name=${context.name}`,
+    );
+    const id = requireString(
+      advisory['id'],
+      `DEPENDENCY_MAINTENANCE_ADVISORY_ID_MISSING name=${context.name}`,
+    );
+    if (identifiers.includes(id)) {
+      throw new Error(`DEPENDENCY_MAINTENANCE_ADVISORY_ID_DUPLICATE name=${context.name} id=${id}`);
+    }
+    requireBoolean(
+      advisory['exactVersionAffected'],
+      `DEPENDENCY_MAINTENANCE_ADVISORY_AFFECTED_INVALID name=${context.name} id=${id}`,
+    );
+    const modifiedAt = requireTimestamp(
+      advisory['modifiedAt'],
+      `DEPENDENCY_MAINTENANCE_ADVISORY_MODIFIED_INVALID name=${context.name} id=${id}`,
+    );
+    if (Date.parse(modifiedAt) > Date.parse(context.snapshotAt)) {
+      throw new Error(
+        `DEPENDENCY_MAINTENANCE_TIMESTAMP_AFTER_SNAPSHOT name=${context.name} field=advisory.modifiedAt id=${id}`,
+      );
+    }
+    requireNullableTimestamp(
+      advisory['publishedAt'],
+      `DEPENDENCY_MAINTENANCE_ADVISORY_PUBLISHED_INVALID name=${context.name} id=${id}`,
+    );
+    const withdrawnAt = requireNullableTimestamp(
+      advisory['withdrawnAt'],
+      `DEPENDENCY_MAINTENANCE_ADVISORY_WITHDRAWN_INVALID name=${context.name} id=${id}`,
+    );
+    requireArray(
+      advisory['aliases'],
+      `DEPENDENCY_MAINTENANCE_ADVISORY_ALIASES_INVALID name=${context.name} id=${id}`,
+    );
+    identifiers.push(id);
+    if (withdrawnAt === null) {
+      unresolved.push(id);
+    }
+  }
+
+  const sorted = [...identifiers].sort((left, right) => left.localeCompare(right));
+  if (JSON.stringify(identifiers) !== JSON.stringify(sorted)) {
+    throw new Error(`DEPENDENCY_MAINTENANCE_ADVISORY_ORDER_INVALID name=${context.name}`);
+  }
+  const returnedIds = requireArray(
+    advisories['returnedIds'],
+    `DEPENDENCY_MAINTENANCE_ADVISORY_IDS_INVALID name=${context.name}`,
+  );
+  if (JSON.stringify(returnedIds) !== JSON.stringify(identifiers)) {
+    throw new Error(`DEPENDENCY_MAINTENANCE_ADVISORY_IDS_INCONSISTENT name=${context.name}`);
+  }
+  const knownAffected = requireBoolean(
+    advisories['knownAffectedAtSnapshot'],
+    `DEPENDENCY_MAINTENANCE_ADVISORY_FLAG_INVALID name=${context.name}`,
+  );
+  if (knownAffected !== identifiers.length > 0) {
+    throw new Error(`DEPENDENCY_MAINTENANCE_ADVISORY_FLAG_INCONSISTENT name=${context.name}`);
+  }
+
+  // An advisory that affects the exact locked version and has not been withdrawn fails the gate.
+  if (unresolved.length > 0) {
+    throw new Error(
+      `DEPENDENCY_MAINTENANCE_ADVISORY_UNRESOLVED name=${context.name} version=${context.version} ids=${unresolved.join(',')}`,
+    );
+  }
+}
 
 /** @param {Response} response @param {number} limitBytes @param {string} code @returns {Promise<unknown>} */
 async function boundedJson(response, limitBytes, code) {
@@ -144,20 +566,6 @@ async function fetchJson(url, options, limitBytes, code) {
   }
 }
 
-/** @param {string} rawUrl @returns {string} */
-function normalizeRepositoryUrl(rawUrl) {
-  let normalized = rawUrl.trim().replace(/^git\+/u, '');
-  normalized = normalized.replace(/^git:\/\/github\.com\//u, 'https://github.com/');
-  normalized = normalized.replace(/^ssh:\/\/git@github\.com\//u, 'https://github.com/');
-  normalized = normalized.replace(/^git@github\.com:/u, 'https://github.com/');
-  normalized = normalized.replace(/\.git$/u, '');
-  const url = new URL(normalized);
-  if (url.protocol !== 'https:') {
-    throw new Error(`DEPENDENCY_REPOSITORY_PROTOCOL_UNSUPPORTED protocol=${url.protocol}`);
-  }
-  return url.toString().replace(/\/$/u, '');
-}
-
 /**
  * @param {JsonObject} versionMetadata
  * @param {string} dependencyName
@@ -192,22 +600,8 @@ function repositoryEvidence(versionMetadata, dependencyName) {
   };
 }
 
-/** @param {number} ageDays @returns {string} */
-function maintenanceWindow(ageDays) {
-  if (ageDays <= 90) {
-    return 'latest-stable-published-within-90-days';
-  }
-  if (ageDays <= 180) {
-    return 'latest-stable-published-within-180-days';
-  }
-  if (ageDays <= 365) {
-    return 'latest-stable-published-within-365-days';
-  }
-  return 'no-stable-release-published-within-365-days';
-}
-
-/** @param {DirectDependency} dependency @returns {Promise<JsonObject>} */
-async function registryEvidence(dependency) {
+/** @param {DirectDependency} dependency @param {string} snapshotAt @returns {Promise<JsonObject>} */
+async function registryEvidence(dependency, snapshotAt) {
   const endpoint = `${NPM_REGISTRY_ORIGIN}/${encodeURIComponent(dependency.name)}`;
   const packument = requireObject(
     await fetchJson(endpoint, { method: 'GET' }, REGISTRY_RESPONSE_LIMIT_BYTES, 'NPM_REGISTRY'),
@@ -259,21 +653,15 @@ async function registryEvidence(dependency) {
     `NPM_REGISTRY_MODIFIED_TIME_MISSING name=${dependency.name}`,
   );
   const snapshotMilliseconds = Date.parse(snapshotAt);
-  const latestMilliseconds = Date.parse(latestStablePublishedAt);
-  const registryModifiedMilliseconds = Date.parse(registryModifiedAt);
   if (
-    !checkMode &&
-    (latestMilliseconds > snapshotMilliseconds ||
-      registryModifiedMilliseconds > snapshotMilliseconds)
+    Date.parse(latestStablePublishedAt) > snapshotMilliseconds ||
+    Date.parse(registryModifiedAt) > snapshotMilliseconds
   ) {
     throw new Error(
       `DEPENDENCY_SNAPSHOT_CLOCK_INVALID name=${dependency.name} snapshot=${snapshotAt} registryModified=${registryModifiedAt}`,
     );
   }
-  const latestStableAgeDays = Math.max(
-    0,
-    Math.floor((snapshotMilliseconds - latestMilliseconds) / MILLISECONDS_PER_DAY),
-  );
+  const latestStableAgeDays = elapsedWholeDays(snapshotAt, latestStablePublishedAt);
 
   const exactDeprecation = exactMetadata['deprecated'];
   const latestDeprecation = latestMetadata['deprecated'];
@@ -315,8 +703,8 @@ function optionalStringArray(value, code) {
   return [...new Set(value)].sort();
 }
 
-/** @param {DirectDependency} dependency @returns {Promise<JsonObject>} */
-async function advisoryEvidence(dependency) {
+/** @param {DirectDependency} dependency @param {string} snapshotAt @returns {Promise<JsonObject>} */
+async function advisoryEvidence(dependency, snapshotAt) {
   /** @type {Map<string, JsonObject>} */
   const vulnerabilities = new Map();
   let pageToken;
@@ -359,7 +747,7 @@ async function advisoryEvidence(dependency) {
         vulnerability['modified'],
         `OSV_MODIFIED_MISSING name=${dependency.name} id=${id}`,
       );
-      if (!checkMode && Date.parse(modifiedAt) > Date.parse(snapshotAt)) {
+      if (Date.parse(modifiedAt) > Date.parse(snapshotAt)) {
         throw new Error(
           `DEPENDENCY_SNAPSHOT_CLOCK_INVALID name=${dependency.name} snapshot=${snapshotAt} osvModified=${modifiedAt}`,
         );
@@ -416,91 +804,109 @@ async function advisoryEvidence(dependency) {
   };
 }
 
-/** @param {unknown} value @returns {unknown} */
-function sortJson(value) {
-  if (Array.isArray(value)) {
-    return value.map((entry) => sortJson(entry));
-  }
-  if (typeof value === 'object' && value !== null) {
-    return Object.fromEntries(
-      Object.entries(/** @type {JsonObject} */ (value))
-        .sort(([left], [right]) => left.localeCompare(right))
-        .map(([key, entry]) => [key, sortJson(entry)]),
+/**
+ * @param {DirectDependency[]} directDependencies
+ * @param {string} repository
+ * @param {string} snapshotAt
+ * @returns {Promise<unknown>}
+ */
+async function refreshEvidence(directDependencies, repository, snapshotAt) {
+  /** @type {JsonObject[]} */
+  const dependencies = [];
+  for (let offset = 0; offset < directDependencies.length; offset += REGISTRY_CONCURRENCY) {
+    const chunk = directDependencies.slice(offset, offset + REGISTRY_CONCURRENCY);
+    const registryResults = await Promise.all(
+      chunk.map((dependency) => registryEvidence(dependency, snapshotAt)),
     );
-  }
-  return value;
-}
-
-const manifest = /** @type {{devDependencies?: Record<string, string>, name?: string}} */ (
-  JSON.parse(readFileSync(resolve(REPOSITORY_ROOT, 'package.json'), 'utf8'))
-);
-const directDependencies = Object.entries(manifest.devDependencies ?? {})
-  .map(([name, version]) => ({ name, version }))
-  .sort((left, right) => left.name.localeCompare(right.name));
-if (directDependencies.length === 0) {
-  throw new Error('DEPENDENCY_MAINTENANCE_DIRECT_SET_EMPTY');
-}
-
-/** @type {JsonObject[]} */
-const dependencies = [];
-for (let offset = 0; offset < directDependencies.length; offset += REGISTRY_CONCURRENCY) {
-  const chunk = directDependencies.slice(offset, offset + REGISTRY_CONCURRENCY);
-  const registryResults = await Promise.all(
-    chunk.map((dependency) => registryEvidence(dependency)),
-  );
-  const advisoryResults = await Promise.all(
-    chunk.map((dependency) => advisoryEvidence(dependency)),
-  );
-  for (const [index, dependency] of chunk.entries()) {
-    const registry = registryResults[index];
-    const advisories = advisoryResults[index];
-    if (registry === undefined || advisories === undefined) {
-      throw new Error(`DEPENDENCY_MAINTENANCE_RESULT_MISSING name=${dependency.name}`);
+    const advisoryResults = await Promise.all(
+      chunk.map((dependency) => advisoryEvidence(dependency, snapshotAt)),
+    );
+    for (const [index, dependency] of chunk.entries()) {
+      const registry = registryResults[index];
+      const advisories = advisoryResults[index];
+      if (registry === undefined || advisories === undefined) {
+        throw new Error(`DEPENDENCY_MAINTENANCE_RESULT_MISSING name=${dependency.name}`);
+      }
+      dependencies.push({
+        advisories,
+        name: dependency.name,
+        registry,
+        version: dependency.version,
+      });
     }
-    dependencies.push({ advisories, name: dependency.name, registry, version: dependency.version });
   }
+
+  return normalizeEvidence({
+    command: EVIDENCE_COMMAND,
+    dependencies,
+    directDependencyCount: directDependencies.length,
+    maintenanceStatusPolicy: {
+      basis: 'elapsed whole days between snapshotAt and npm dist-tags.latest publish timestamp',
+      buckets: MAINTENANCE_BUCKETS,
+      limitation:
+        'A release-age bucket is not evidence of maintainer responsiveness or code safety.',
+    },
+    repository,
+    schemaVersion: SCHEMA_VERSION,
+    securityHistoryScope:
+      'Point-in-time exact-version OSV query results only; an empty result is not proof that no unknown or previously unrecorded vulnerability exists.',
+    snapshotAt,
+    sources: {
+      npmRegistry: `${NPM_REGISTRY_ORIGIN}/<encoded-package-name>`,
+      npmRegistryDocumentation:
+        'https://github.com/npm/registry/blob/master/docs/responses/package-metadata.md',
+      osvQuery: OSV_QUERY_URL,
+      osvQueryDocumentation: 'https://google.github.io/osv.dev/post-v1-query/',
+    },
+  });
 }
 
-const evidence = sortJson({
-  command: 'npm run evidence:dependency-maintenance',
-  dependencies,
-  directDependencyCount: directDependencies.length,
-  maintenanceStatusPolicy: {
-    basis: 'elapsed whole days between snapshotAt and npm dist-tags.latest publish timestamp',
-    buckets: [
-      'latest-stable-published-within-90-days',
-      'latest-stable-published-within-180-days',
-      'latest-stable-published-within-365-days',
-      'no-stable-release-published-within-365-days',
-    ],
-    limitation: 'A release-age bucket is not evidence of maintainer responsiveness or code safety.',
-  },
-  repository: requireString(manifest.name, 'DEPENDENCY_MAINTENANCE_REPOSITORY_MISSING'),
-  schemaVersion: 1,
-  securityHistoryScope:
-    'Point-in-time exact-version OSV query results only; an empty result is not proof that no unknown or previously unrecorded vulnerability exists.',
-  snapshotAt,
-  sources: {
-    npmRegistry: `${NPM_REGISTRY_ORIGIN}/<encoded-package-name>`,
-    npmRegistryDocumentation:
-      'https://github.com/npm/registry/blob/master/docs/responses/package-metadata.md',
-    osvQuery: OSV_QUERY_URL,
-    osvQueryDocumentation: 'https://google.github.io/osv.dev/post-v1-query/',
-  },
-});
-const serialized = `${JSON.stringify(evidence, null, 2)}\n`;
+/** @returns {Promise<void>} */
+async function main() {
+  const outputPath = resolve(REPOSITORY_ROOT, 'evidence', 'tier-0', 'dependency-maintenance.json');
+  const manifest = /** @type {{devDependencies?: Record<string, string>, name?: string}} */ (
+    JSON.parse(readFileSync(resolve(REPOSITORY_ROOT, 'package.json'), 'utf8'))
+  );
+  const repository = requireString(manifest.name, 'DEPENDENCY_MAINTENANCE_REPOSITORY_MISSING');
+  const directDependencies = directDependenciesOf(manifest);
 
-if (checkMode) {
-  if (!existsSync(outputPath) || readFileSync(outputPath, 'utf8') !== serialized) {
-    throw new Error(
-      'DEPENDENCY_MAINTENANCE_EVIDENCE_STALE run="npm run evidence:dependency-maintenance"',
+  if (process.argv.includes('--check')) {
+    if (!existsSync(outputPath)) {
+      throw new Error(`DEPENDENCY_MAINTENANCE_EVIDENCE_MISSING run="${EVIDENCE_COMMAND}"`);
+    }
+    const serializedText = readFileSync(outputPath, 'utf8');
+    let parsed;
+    try {
+      parsed = JSON.parse(serializedText);
+    } catch (error) {
+      throw new Error('DEPENDENCY_MAINTENANCE_EVIDENCE_JSON_INVALID', { cause: error });
+    }
+    const summary = validateMaintenanceEvidence(parsed, serializedText, {
+      directDependencies,
+      nowMilliseconds: Date.now(),
+      repository,
+    });
+    console.log(
+      `dependency-maintenance current direct=${String(summary.directDependencyCount)} snapshot=${summary.snapshotAt} ageDays=${String(summary.snapshotAgeDays)} limitDays=${String(MAX_SNAPSHOT_AGE_DAYS)} source=committed-snapshot`,
     );
+    return;
   }
-  console.log(`dependency-maintenance current direct=${String(directDependencies.length)}`);
-} else {
+
+  const snapshotAt = new Date().toISOString();
+  const evidence = await refreshEvidence(directDependencies, repository, snapshotAt);
+  const serialized = serializeEvidence(evidence);
+  validateMaintenanceEvidence(evidence, serialized, {
+    directDependencies,
+    nowMilliseconds: Date.now(),
+    repository,
+  });
   mkdirSync(dirname(outputPath), { recursive: true });
   writeFileSync(outputPath, serialized, 'utf8');
   console.log(
-    `dependency-maintenance generated path=evidence/tier-0/dependency-maintenance.json direct=${String(directDependencies.length)}`,
+    `dependency-maintenance generated path=evidence/tier-0/dependency-maintenance.json direct=${String(directDependencies.length)} snapshot=${snapshotAt}`,
   );
+}
+
+if (process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  await main();
 }

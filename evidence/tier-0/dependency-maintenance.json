@@ -61,12 +61,12 @@
           "version": "1.62.1"
         },
         "maintenanceObservation": {
-          "ageDaysAtSnapshot": 10,
+          "ageDaysAtSnapshot": 11,
           "basis": "npm dist-tags.latest publish age at snapshot; bounded observation, not a maintainer claim",
           "status": "latest-stable-published-within-90-days"
         },
         "registryEndpoint": "https://registry.npmjs.org/%40playwright%2Ftest",
-        "registryModifiedAt": "2026-08-10T05:48:36.682Z",
+        "registryModifiedAt": "2026-08-10T16:09:53.760Z",
         "repository": {
           "directory": null,
           "registryValue": "git+https://github.com/microsoft/playwright.git",
@@ -98,7 +98,7 @@
           "version": "26.2.0"
         },
         "maintenanceObservation": {
-          "ageDaysAtSnapshot": 2,
+          "ageDaysAtSnapshot": 3,
           "basis": "npm dist-tags.latest publish age at snapshot; bounded observation, not a maintainer claim",
           "status": "latest-stable-published-within-90-days"
         },
@@ -283,7 +283,7 @@
           "version": "7.0.2"
         },
         "maintenanceObservation": {
-          "ageDaysAtSnapshot": 32,
+          "ageDaysAtSnapshot": 33,
           "basis": "npm dist-tags.latest publish age at snapshot; bounded observation, not a maintainer claim",
           "status": "latest-stable-published-within-90-days"
         },
@@ -316,16 +316,16 @@
         "exactVersionPublishedAt": "2026-07-20T17:39:32.402Z",
         "latestStable": {
           "deprecation": null,
-          "publishedAt": "2026-08-03T17:36:21.323Z",
-          "version": "8.66.0"
+          "publishedAt": "2026-08-10T17:22:44.231Z",
+          "version": "8.67.0"
         },
         "maintenanceObservation": {
-          "ageDaysAtSnapshot": 6,
+          "ageDaysAtSnapshot": 0,
           "basis": "npm dist-tags.latest publish age at snapshot; bounded observation, not a maintainer claim",
           "status": "latest-stable-published-within-90-days"
         },
         "registryEndpoint": "https://registry.npmjs.org/typescript-eslint",
-        "registryModifiedAt": "2026-08-07T16:14:33.015Z",
+        "registryModifiedAt": "2026-08-10T17:28:09.513Z",
         "repository": {
           "directory": "packages/typescript-eslint",
           "registryValue": "git+https://github.com/typescript-eslint/typescript-eslint.git",
@@ -357,7 +357,7 @@
           "version": "8.2.1"
         },
         "maintenanceObservation": {
-          "ageDaysAtSnapshot": 3,
+          "ageDaysAtSnapshot": 4,
           "basis": "npm dist-tags.latest publish age at snapshot; bounded observation, not a maintainer claim",
           "status": "latest-stable-published-within-90-days"
         },
@@ -394,7 +394,7 @@
           "version": "1.3.0"
         },
         "maintenanceObservation": {
-          "ageDaysAtSnapshot": 96,
+          "ageDaysAtSnapshot": 97,
           "basis": "npm dist-tags.latest publish age at snapshot; bounded observation, not a maintainer claim",
           "status": "latest-stable-published-within-180-days"
         },
@@ -460,7 +460,7 @@
   "repository": "hack-for-humanity-summer-2026",
   "schemaVersion": 1,
   "securityHistoryScope": "Point-in-time exact-version OSV query results only; an empty result is not proof that no unknown or previously unrecorded vulnerability exists.",
-  "snapshotAt": "2026-08-10T13:47:41.558Z",
+  "snapshotAt": "2026-08-10T19:22:45.505Z",
   "sources": {
     "npmRegistry": "https://registry.npmjs.org/<encoded-package-name>",
     "npmRegistryDocumentation": "https://github.com/npm/registry/blob/master/docs/responses/package-metadata.md",

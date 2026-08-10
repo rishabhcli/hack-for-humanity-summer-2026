@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs';
 
 import {
   acquireLifecycleLock,
+  formatErrorChain,
   pidRecordPath,
   readPidRecord,
   removePidRecord,
@@ -43,7 +44,7 @@ try {
 
 if (errors.length > 0) {
   for (const error of errors) {
-    console.error(error instanceof Error ? error.message : String(error));
+    console.error(formatErrorChain(error));
   }
   process.exitCode = 1;
 } else {

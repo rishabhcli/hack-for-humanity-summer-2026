@@ -1,4 +1,4 @@
-import { acquireLifecycleLock, runPreflight, waitForHealth } from './lib.mjs';
+import { acquireLifecycleLock, formatErrorChain, runPreflight, waitForHealth } from './lib.mjs';
 
 let releaseLifecycleLock = null;
 try {
@@ -11,7 +11,7 @@ try {
     );
   }
 } catch (error) {
-  console.error(error instanceof Error ? error.message : String(error));
+  console.error(formatErrorChain(error));
   process.exitCode = 1;
 } finally {
   releaseLifecycleLock?.();

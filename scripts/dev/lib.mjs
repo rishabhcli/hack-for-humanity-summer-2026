@@ -1309,10 +1309,61 @@ export function healthRequest(definition, timeoutMs = 5_000) {
   });
 }
 
+/**
+ * Flattens an error and its `cause` chain into one line.
+ *
+ * A readiness failure that reports only its outermost code is undiagnosable after the fact, which
+ * is how a real hang and a transient slow start become indistinguishable. Every lifecycle entry
+ * point prints this instead of `error.message`.
+ *
+ * @param {unknown} error
+ * @returns {string}
+ */
+export function formatErrorChain(error) {
+  /** @type {string[]} */
+  const parts = [];
+  let current = error;
+  for (let depth = 0; depth < 8 && current !== undefined && current !== null; depth += 1) {
+    parts.push(current instanceof Error ? current.message : String(current));
+    current = current instanceof Error ? current.cause : undefined;
+  }
+  return parts.join(' <- ');
+}
+
+/**
+ * Records one failed readiness attempt so a transient failure remains diagnosable after the run
+ * that observed it has exited. Never throws: losing a diagnostic line must not fail a gate.
+ *
+ * @param {ServiceId} serviceId
+ * @param {string} line
+ * @returns {void}
+ */
+function appendHealthDiagnostic(serviceId, line) {
+  try {
+    mkdirSync(LOG_ROOT, { recursive: true, mode: 0o700 });
+    const descriptor = openSync(
+      join(LOG_ROOT, 'health.log'),
+      fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_APPEND | fsConstants.O_NOFOLLOW,
+      0o600,
+    );
+    try {
+      writeFileSync(descriptor, `${new Date().toISOString()} service=${serviceId} ${line}\n`);
+    } finally {
+      closeSync(descriptor);
+    }
+  } catch {
+    // Diagnostics are best-effort; the readiness verdict itself is authoritative.
+  }
+}
+
 /** @param {ServiceDefinition} definition @param {number} [timeoutMs] @returns {Promise<ReadinessPayload>} */
-export async function waitForHealth(definition, timeoutMs = 30_000) {
-  const deadline = Date.now() + timeoutMs;
+export async function waitForHealth(definition, timeoutMs = 60_000) {
+  const startedAt = Date.now();
+  const deadline = startedAt + timeoutMs;
   let lastError = null;
+  let attempts = 0;
+  /** @type {string[]} */
+  const distinctReasons = [];
   let expectedArtifactDigest;
   try {
     expectedArtifactDigest = desiredArtifactDigest(definition);
@@ -1321,22 +1372,41 @@ export async function waitForHealth(definition, timeoutMs = 30_000) {
   }
 
   while (Date.now() < deadline) {
+    attempts += 1;
     try {
       const record = readPidRecord(definition);
       if (record !== null && record.artifactDigest !== expectedArtifactDigest) {
         throw new Error(`DEV_HEALTH_ARTIFACT_STALE service=${definition.id}`);
       }
-      return await healthRequest(definition);
+      const payload = await healthRequest(definition);
+      if (attempts > 1) {
+        appendHealthDiagnostic(
+          definition.id,
+          `recovered attempts=${String(attempts)} elapsedMs=${String(Date.now() - startedAt)} reasons=${distinctReasons.join('|')}`,
+        );
+      }
+      return payload;
     } catch (error) {
       if (error instanceof Error && error.message.startsWith('DEV_HEALTH_ARTIFACT_STALE')) {
         throw error;
       }
       lastError = error;
+      const reason = formatErrorChain(error);
+      if (!distinctReasons.includes(reason)) {
+        distinctReasons.push(reason);
+      }
+      appendHealthDiagnostic(
+        definition.id,
+        `attempt=${String(attempts)} elapsedMs=${String(Date.now() - startedAt)} reason=${reason}`,
+      );
       await new Promise((resolvePromise) => setTimeout(resolvePromise, 200));
     }
   }
 
-  throw new Error(`DEV_HEALTH_DEADLINE service=${definition.id}`, { cause: lastError });
+  throw new Error(
+    `DEV_HEALTH_DEADLINE service=${definition.id} attempts=${String(attempts)} timeoutMs=${String(timeoutMs)} reasons=${distinctReasons.join('|')}`,
+    { cause: lastError },
+  );
 }
 
 /** @param {ServiceDefinition} definition @param {PidRecord} record @param {number} [timeoutMs] @returns {Promise<void>} */
