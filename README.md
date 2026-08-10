@@ -6,7 +6,7 @@
 
 ## Repository status
 
-Implementation has not started. The repository currently contains the authoritative product and competition specifications. This README defines the production target that future code must satisfy; it does not claim that planned commands or components already exist.
+The Tier 0 executable foundation is under active implementation. A truthful browser-readiness surface and the repository-isolated HTTPS development lifecycle exist, but camera measurement, calibration, the protocol, validation fixtures, and every production release gate remain unimplemented. The repository is **not yet in production**.
 
 | Document | Authority |
 |---|---|
@@ -153,19 +153,25 @@ Accessibility is a release gate, not a polish task. The production interface mus
 ├── src/ui-accessibility/
 ├── validation/
 ├── tests/                    # Unit, property, integration, E2E, resilience
-├── docs/                     # ADRs, threat model, runbooks, evaluation
+├── adr/                      # Numbered architecture decisions
+├── docs/                     # Threat models, runbooks, dependency and evaluation records
 └── infra/                    # Reproducible deployment and environment policy
 ```
 
 This is a boundary contract, not a command to create empty directories. Add a directory when it owns working code, tests, and documentation.
 
+The committed boundary policy treats the names in this layout as reserved ownership areas even before their directories exist. This is intentional: `src/protocol`, `src/vision`, `src/measurement`, `src/quality`, and `src/report` remain absent until a production slice supplies real owned code. Empty directories or placeholder files would not satisfy Tier 0 or Tier 6.
+
 ## Development command contract
 
-No commands are advertised as working until the corresponding toolchain is committed. The first production scaffold must expose one documented, cross-platform command surface, preferably through a checked-in task runner or Makefile:
+The checked-in npm scripts and Makefile expose the command surface below. `eval` and `release-check` currently fail closed with stable refusal codes because there is no validated fixture corpus, measurement oracle, or green release-gate evidence; they must not be interpreted as passing commands yet.
 
 | Command | Required behavior |
 |---|---|
 | `bootstrap` | Verify tool versions, install locked dependencies, initialize only local non-secret state |
+| `format` | Check committed files against the repository Prettier policy without rewriting them |
+| `lint` | Run static lint plus source-ownership, import-boundary, and cycle checks |
+| `typecheck` | Type-check browser, tooling, and checked JavaScript configurations without emitting files |
 | `check` | Format check, lint, type/static analysis, schema/config validation |
 | `test` | Deterministic unit and property suites |
 | `test-integration` | Real boundary tests using isolated local/test dependencies |
@@ -173,9 +179,23 @@ No commands are advertised as working until the corresponding toolchain is commi
 | `eval` | Reproduce committed domain evaluation and metrics |
 | `build` | Produce release artifacts from a clean checkout |
 | `run-local` | Start the complete local system or a documented production-equivalent subset |
+| `verify-all` | Run the canonical ordered local verification pipeline, including lifecycle and browser checks |
 | `release-check` | Run all blocking gates, artifact/SBOM generation, and policy checks |
 
 A new contributor should be able to move from a clean checkout to a verified local system without tribal knowledge.
+
+### Clean-checkout verification
+
+Use Node.js `24.19.0` and its bundled npm `11.17.0`; both are checked before npm runs a repository script. The local lifecycle also requires `git`, `lsof`, and OpenSSL on macOS or Linux. Then run:
+
+```sh
+npm run bootstrap
+npm run verify-all
+```
+
+`bootstrap` performs a frozen `npm ci` and installs the Playwright Chromium revision declared by the exact Playwright package. `verify-all` already runs preflight, starts and health-checks the local cohort, and exercises the browser workflow after the static, dependency, unit, integration, and build checks; duplicating those lifecycle commands is not part of the clean-checkout recipe. npm, Vite, and browser caches stay under the ignored `.dev/cache/` tree.
+
+The committed allocation is HTTPS `127.0.0.1:4180-4183`, inside this repository's exclusive `4180-4189` block. Runtime relocation is prohibited. Any approved allocation change is a synchronized contract change: update `ports.env`, the lifecycle and Playwright configuration/tests, `ASSUMPTIONS.md`, ADR-0002, and clean-checkout evidence together. Stop owned services with `npm run dev:down`; never use a broad process-kill command.
 
 ## Environment model
 

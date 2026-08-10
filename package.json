@@ -1,0 +1,81 @@
+{
+  "name": "hack-for-humanity-summer-2026",
+  "version": "0.0.0",
+  "private": true,
+  "description": "A non-diagnostic, local-first cervical joint-position measurement tool.",
+  "type": "module",
+  "packageManager": "npm@11.17.0",
+  "engines": {
+    "node": ">=24.19.0 <27",
+    "npm": "11.17.0"
+  },
+  "devEngines": {
+    "runtime": {
+      "name": "node",
+      "version": ">=24.19.0 <27",
+      "onFail": "error"
+    },
+    "packageManager": {
+      "name": "npm",
+      "version": "11.17.0",
+      "onFail": "error"
+    }
+  },
+  "scripts": {
+    "bootstrap": "node scripts/bootstrap.mjs",
+    "build": "npm run typecheck && node scripts/assert-build-paths.mjs && node scripts/run-vite-build.mjs && node scripts/dev/record-build.mjs",
+    "audit:dependencies": "npm audit --audit-level=low",
+    "check": "npm run format && npm run lint && npm run typecheck && npm run dev:preflight && npm run check:dependencies",
+    "dev": "npm run dev:up && npm run dev:health",
+    "dev:preflight": "node scripts/dev/preflight.mjs",
+    "dev:up": "node scripts/dev/up.mjs",
+    "dev:health": "node scripts/dev/health.mjs",
+    "dev:down": "node scripts/dev/down.mjs",
+    "evidence:dependencies": "node scripts/dependency-evidence.mjs",
+    "evidence:dependency-maintenance": "node scripts/dependency-maintenance-evidence.mjs",
+    "evidence:build": "node scripts/build-reproducibility.mjs --write",
+    "evidence:sbom": "node scripts/generate-sbom.mjs",
+    "evidence:verify": "node scripts/capture-verify.mjs",
+    "eval": "node scripts/eval.mjs",
+    "preview": "npm run dev:up && npm run dev:health",
+    "format": "prettier --check .",
+    "format:write": "prettier --write .",
+    "full-verify": "npm run verify-all",
+    "check:dependencies": "node scripts/dependency-evidence.mjs --check && node scripts/dependency-maintenance-evidence.mjs --check && node scripts/generate-sbom.mjs --check",
+    "check:build": "node scripts/build-reproducibility.mjs",
+    "lint": "eslint . --max-warnings=0 && node scripts/check-boundaries.mjs && node scripts/check-port-contract.mjs",
+    "playwright:install": "node scripts/install-playwright.mjs",
+    "test": "vitest run --coverage",
+    "test:unit": "vitest run",
+    "test-integration": "node scripts/test-dev-lifecycle.mjs",
+    "test:e2e": "node scripts/run-e2e.mjs",
+    "test:e2e:runner": "node scripts/playwright-runner.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit --pretty false && tsc -p tsconfig.tools.json --noEmit --pretty false && tsc -p tsconfig.scripts.json --noEmit --pretty false",
+    "run-local": "npm run dev",
+    "release-check": "node scripts/release-check.mjs",
+    "test-e2e": "npm run test:e2e",
+    "verify-all": "node scripts/verify-all.mjs"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@playwright/test": "1.62.1",
+    "@types/node": "24.13.3",
+    "@vitest/coverage-v8": "4.1.10",
+    "eslint": "10.8.0",
+    "fast-check": "4.9.0",
+    "prettier": "3.9.6",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.65.0",
+    "vite": "7.3.6",
+    "vite-plugin-pwa": "1.3.0",
+    "vitest": "4.1.10"
+  },
+  "overrides": {
+    "esbuild": "0.28.2"
+  },
+  "allowScripts": {
+    "esbuild@0.28.2": true,
+    "fsevents@2.3.2": false,
+    "fsevents@2.3.3": false
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "extends": "./tsconfig.tools.json",
+  "compilerOptions": {
+    "allowJs": true,
+    "checkJs": true,
+    "skipLibCheck": false
+  },
+  "include": ["scripts/**/*.mjs", "tests/**/*.mjs"]
+}

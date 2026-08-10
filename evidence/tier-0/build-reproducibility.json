@@ -1,0 +1,54 @@
+{
+  "command": "npm run evidence:build",
+  "fileCount": 8,
+  "files": [
+    {
+      "bytes": 5374,
+      "path": "assets/index-D4W0V7q5.js",
+      "sha256": "9aa085d10556ec25fc6165bd5952f3d9e226bb9a9c050661245472d8c8b93edf"
+    },
+    {
+      "bytes": 9161,
+      "path": "assets/index-D4W0V7q5.js.map",
+      "sha256": "bb1f3ed35ff08228f0a3a91010916b87706ed379f8be8ffe0dde52fc951c0e1a"
+    },
+    {
+      "bytes": 4844,
+      "path": "assets/index-DDOqxjjD.css",
+      "sha256": "e28785c61268178d2174fe6379e1934990fdea4145025eb6b90371c2937ac203"
+    },
+    {
+      "bytes": 835,
+      "path": "index.html",
+      "sha256": "fb501c8adf43362d74795f8dbb8389f2777533c7c960b1c084a1e9a4d8d695b0"
+    },
+    {
+      "bytes": 295,
+      "path": "manifest.webmanifest",
+      "sha256": "c0cff33d5479bd2ba39715866e7250ffec24516b4e22af815029061f62c5c362"
+    },
+    {
+      "bytes": 134,
+      "path": "registerSW.js",
+      "sha256": "9742073ef7fc795e7673d98f272992843298426a0ffd8cb3507784df5143608b"
+    },
+    {
+      "bytes": 1154,
+      "path": "sw.js",
+      "sha256": "16fc2a14d806e05dd5174d74ac9c37b93e83a9c260a4af252f3b33ad697c15ea"
+    },
+    {
+      "bytes": 15026,
+      "path": "workbox-2fbc6a65.js",
+      "sha256": "39c2e6ae44c3f29666f6a328b6523bf13a053a1d95c74af8ddea82b1045b0b6e"
+    }
+  ],
+  "lockfileSha256": "9bde2ef9257bf63025802f16edd9be1be4c3fac376ed3d057f38665eec1c34b8",
+  "manifestSha256": "4750376cedb8e16a6a634bdc2afb131c62bface60490f5e8d8918bc1a2959f13",
+  "platformScope": "platform-neutral-static-web-artifact",
+  "referenceNodeVersion": "24.19.0",
+  "referenceNpmVersion": "11.17.0",
+  "seed": "not-applicable-deterministic-vite-build",
+  "sourceInputDigest": "ee63b024e3f760b90eb23a86d89ab11fbb60825a9de6d9c2b466a7ad8bc7af2d",
+  "totalBytes": 36823
+}

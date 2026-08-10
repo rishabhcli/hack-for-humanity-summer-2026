@@ -1,0 +1,13 @@
+node_modules/
+dist/
+evidence/**/*.json
+coverage/
+playwright-report/
+test-results/
+.dev/
+package-lock.json
+AGENTS.md
+HACKATHON.md
+GOAL.md
+README.md
+WINNING_IDEA.md
