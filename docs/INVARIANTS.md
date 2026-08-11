@@ -14,13 +14,13 @@ Encoding strategy and its alternatives: [ADR-0005](../adr/ADR-0005-invariants-as
 
 | Invariant                                                     | Encoded             |
 | ------------------------------------------------------------- | ------------------- |
-| I1 — never outputs a diagnosis or return-to-activity decision | Not yet             |
+| I1 — never outputs a diagnosis or return-to-activity decision | **Yes**             |
 | I2 — measurement withheld when geometry or confidence fails   | **Yes**             |
 | I3 — improvement reported only against measurement error      | **Yes**             |
 | I4 — neutral reference and calibration versioned per session  | **Yes**             |
 | I5 — camera/torso motion separated or the trial is rejected   | Partial (gate only) |
 | I6 — raw frames not transmitted or retained by default        | Not yet             |
-| I7 — clinical thresholds require an authoritative citation    | Not yet             |
+| I7 — clinical thresholds require an authoritative citation    | **Yes**             |
 
 ## I2 — A measurement is withheld when geometry or pose confidence fails
 
@@ -121,6 +121,67 @@ the number is shown, which is Tier 2's report work. The estimator has also not b
 against a known-angle ground truth; until it is, the floor is arithmetically correct but its inputs
 are unvalidated.
 
+## I1 — The system never outputs a diagnosis or a return-to-activity decision
+
+**Encoded as a build-time gate over the whole shipped bundle, plus a runtime screen.** A rule
+applied only to strings that happen to route through one module is not an enforcement, because the
+strings that would do harm are the ones a future contributor writes somewhere else.
+
+- Build gate: `scripts/check-copy.mjs` walks the TypeScript AST of every shipped `src/**/*.ts` file,
+  collects every string and template literal, and also strips and scans `index.html`. It runs inside
+  `npm run lint`, which runs inside `verify-all`, so a violating commit cannot pass CI.
+- Policy: `scripts/copy-policy.mjs` — three rules covering clinical findings about the person,
+  clearance and resumption decisions, and prescribing a course of care.
+- Runtime screen: `src/report/clinical-statement.ts` — `screenStatementText` mints a
+  `DisplayableStatement`, which is the only text type the report path accepts, verified by a
+  module-private `WeakSet`.
+- Disclaimers are handled by containment, not by exact-string match, so the sentence that says this
+  is not a diagnosis is permitted inside the markup it actually ships in, while a weakened variant
+  of it is refused.
+
+| Attack                                                     | Named test                                                             | Cases |
+| ---------------------------------------------------------- | ---------------------------------------------------------------------- | ----- |
+| Eight plausible prohibited sentences, one or more per rule | `flags every prohibited sample with its rule code`                     | 8     |
+| Prohibited language hidden inside markup                   | `flags prohibited language embedded in markup, not only whole strings` | 1     |
+| A weakened disclaimer must not drift in                    | `refuses a near-miss variant of an approved disclaimer`                | 1     |
+| Build policy and runtime policy must not diverge           | `declares the same rules in the same order with identical patterns`    | 3     |
+| A hand-built statement object must not be displayable      | `refuses to treat a hand-built statement object as displayable`        | 3     |
+
+**The gate has been observed failing.** Replacing the status text in `src/main.ts` with
+`You are cleared to return to play` produced two `COPY_POLICY_VIOLATION` findings at
+`src/main.ts:59` and exit code 1; restoring the file returned it to
+`copy-check passed literals=315 rules=3`.
+
+**Not yet done for this invariant:** the gate covers shipped source and the document shell. It does
+not yet cover copy that could arrive from the report export path once that exists, and it has no
+production alert, since there is no production.
+
+## I7 — Every clinical threshold requires an authoritative citation and review before display
+
+**Encoded as a review-gated registry.** A clinical threshold is not a number in this codebase; it is
+a `ClinicalThreshold` carrying its primary source and a review record. `displayThreshold` refuses
+any threshold whose review status is not `verified-against-primary-source`, and then refuses any
+citation a reader could not follow.
+
+- Type / boundary: `src/report/clinical-statement.ts` — `ClinicalThreshold`, `ThresholdReview`,
+  `displayThreshold`, `CLINICAL_THRESHOLDS`
+- A displayed threshold always carries an attribution naming the source **and the population it was
+  measured in**, because a threshold is only meaningful for the population it came from.
+
+| Attack                                                     | Named test                                                                        |
+| ---------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| An unreviewed threshold must not display                   | `refuses the registry's cutoff because its primary source is unverified`          |
+| An unknown threshold must not be invented                  | `refuses an unknown threshold rather than inventing one`                          |
+| A reviewed threshold with an unfollowable citation         | `refuses a verified review whose citation a reader could not follow`              |
+| A fully cited, reviewed threshold displays with provenance | `displays a threshold only once it is both cited and reviewed, and attributes it` |
+
+**The current honest state:** the registry holds one entry, the commonly repeated 4.5-degree
+cervical joint-position-error cutoff, with review status `pending-source-verification` and its
+`reportedValue` recorded as _not yet transcribed_. **It is therefore undisplayable, and this product
+currently shows no clinical threshold at all.** That is what makes this invariant observable rather
+than decorative. `WINNING_IDEA.md` requires verifying that number against its primary source before
+it goes on screen; until someone does, the gate holds the line.
+
 ## I5 — Camera and torso movement are separated from intended head rotation
 
 **Partially encoded.** The quality gate refuses a trial whose endpoint window shows camera motion or
@@ -134,18 +195,13 @@ computes that attribution or proves it is correct. Until `src/vision` exists, th
 enforced only against inputs that are already honest, which is not enforcement. It is recorded as
 partial for that reason.
 
-## I1, I6, I7 — Not yet encoded
+## I6 — Not yet encoded
 
-These are named here so their absence is visible rather than implied:
+Named here so its absence is visible rather than implied:
 
-- **I1 — no diagnosis or return-to-activity decision.** Requires a citation-gated displayable-copy
-  type plus a build-time content check over shipped copy. The current UI copy is correct but is
-  copy, not enforcement.
 - **I6 — raw frames not transmitted or retained.** The E2E check proves no third-party request
   occurs on the readiness path, but no camera is opened yet, so nothing about the frame path is
   currently provable.
-- **I7 — clinical thresholds require an authoritative citation.** Requires the threshold registry
-  and a CI content gate.
 
 ## How to extend this register
 

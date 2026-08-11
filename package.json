@@ -43,7 +43,7 @@
     "full-verify": "npm run verify-all",
     "check:dependencies": "node scripts/dependency-evidence.mjs --check && node scripts/dependency-maintenance-evidence.mjs --check && node scripts/generate-sbom.mjs --check",
     "check:build": "node scripts/build-reproducibility.mjs",
-    "lint": "eslint . --max-warnings=0 && node scripts/check-boundaries.mjs && node scripts/check-port-contract.mjs",
+    "lint": "eslint . --max-warnings=0 && node scripts/check-boundaries.mjs && node scripts/check-port-contract.mjs && node scripts/check-copy.mjs",
     "playwright:install": "node scripts/install-playwright.mjs",
     "test": "vitest run --coverage",
     "test:unit": "vitest run",
@@ -54,7 +54,8 @@
     "run-local": "npm run dev",
     "release-check": "node scripts/release-check.mjs",
     "test-e2e": "npm run test:e2e",
-    "verify-all": "node scripts/verify-all.mjs"
+    "verify-all": "node scripts/verify-all.mjs",
+    "check:copy": "node scripts/check-copy.mjs"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",

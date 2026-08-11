@@ -250,3 +250,52 @@ Three of the seven domain invariants are enforced by types and runtime boundary 
 ### Next item selected by §10.1
 
 Encode I1 and I7 together: a citation-gated clinical-threshold registry whose entries cannot be displayed until a human records having read the primary source, plus a build-time copy gate over every string literal in the shipped bundle. The 4.5 degree cutoff will enter the registry as **unverified** and therefore undisplayable, which is the truthful state until the primary source is actually read.
+
+## 2026-08-10 13:35 PDT — Tier 1 encodes I1 and I7; the product now shows no clinical threshold at all
+
+### Behaviour delivered
+
+- **I1 — never outputs a diagnosis or return-to-activity decision.** Encoded as a build-time gate over the whole shipped bundle, not as a check on the strings that happen to route through one module. `scripts/check-copy.mjs` walks the TypeScript AST of every shipped `src/**/*.ts` file, collects every string and template literal, strips and scans `index.html`, and applies three rules from `scripts/copy-policy.mjs`: clinical findings about the person, clearance or resumption decisions, and prescribing a course of care. It runs inside `npm run lint`, which runs inside `verify-all`.
+- **Disclaimers are handled by containment, not exact match.** The sentence that most needs to ship is the one saying this is not a diagnosis, and it ships inside markup. An approved disclaimer is permitted wherever it appears verbatim; a weakened variant of it is refused.
+- **I7 — clinical thresholds require an authoritative citation and review before display.** A threshold is a `ClinicalThreshold` in `src/report/clinical-statement.ts` carrying its primary source and a review record. `displayThreshold` refuses anything whose review is not `verified-against-primary-source`, then refuses any citation a reader could not follow. A displayed threshold always carries an attribution naming the source **and the population it was measured in**.
+- **`DisplayableStatement` is a capability**, minted only by `screenStatementText`, verified by a module-private `WeakSet`, so a hand-built statement object is not displayable.
+
+### The honest current state of the clinical claim
+
+The registry holds exactly one entry — the commonly repeated 4.5-degree cervical joint-position-error cutoff — with review status `pending-source-verification` and its `reportedValue` recorded as _not yet transcribed, cited secondhand and not checked against the source_. **It is therefore undisplayable, and this product currently shows no clinical threshold anywhere.** That is not a gap to paper over; it is what makes I7 observable rather than decorative. `WINNING_IDEA.md` requires verifying that number against its primary source before it goes on screen, and until someone does, the gate holds the line.
+
+### The gate was observed failing, not just passing
+
+Replacing the status text in `src/main.ts` with `You are cleared to return to play` produced two findings and exit code 1:
+
+```
+COPY_POLICY_VIOLATION COPY_ASSERTS_CLEARANCE location=src/main.ts:59 phrase="cleared to" rule="asserts a clearance or resumption decision"
+COPY_POLICY_VIOLATION COPY_ASSERTS_CLEARANCE location=src/main.ts:59 phrase="return to play" rule="asserts a clearance or resumption decision"
+copy-check failed violations=2
+```
+
+Restoring the file returned `copy-check passed literals=315 rules=3 scope=src/**/*.ts,index.html`. `git diff --stat src/main.ts` confirmed the file was left unmodified.
+
+### Drift between the two policy copies is a test failure
+
+The build gate is a `.mjs` script and the runtime screen is a `.ts` domain module, and the domain boundary rules forbid the latter importing the former. `scripts/copy-policy.test.mjs` therefore asserts that both declare the same rules in the same order with byte-identical pattern sources and flags, the same approved disclaimers, and the same verdict on every sample.
+
+### Commands run and observed results
+
+- `npm run verify-all` — **passed all 12 steps** with the copy gate wired into `lint`.
+- `npm test` — coverage on the configured `src/**/*.ts` scope: 97.29% statements, 95.32% branches, 98.27% functions, 97.65% lines, against 90% thresholds.
+- `npm run lint` — `boundary-check passed files=16 owned-areas=6 configured-domain-areas=5 existing-domain-areas=4`, `copy-check passed literals=315 rules=3`.
+
+### Two things the typechecker forced into the open
+
+- Destructured tuple entries in a checked-JavaScript test were `string | undefined` under `noUncheckedIndexedAccess`; the sample table is now explicitly typed as tuples rather than the check being relaxed.
+- Importing the `.ts` domain module from a `.mjs` test needed `allowImportingTsExtensions` or an extensionless specifier. The extensionless form was used, so no compiler option was loosened to make a test compile.
+
+### Risks and honest limits
+
+- The copy gate is a name-and-phrase check over shipped source. It cannot catch copy assembled at runtime from fragments, and it has no production alert because there is no production. Both are recorded in `docs/INVARIANTS.md` rather than implied to be done.
+- I5 remains partial and I6 remains unencoded. Five of seven invariants are now machine-enforced.
+
+### Next item selected by §10.1
+
+Encode I6 — raw frames are not transmitted or retained by default — by removing the capability from the bundle rather than promising the behaviour: a build-time egress gate that fails on any reference to a network API or a frame-serialization API anywhere in shipped source. With no `fetch`, `WebSocket`, `sendBeacon`, `MediaRecorder`, `toDataURL` or `toBlob` reachable, frame egress becomes unreachable rather than merely unintended, on error paths as well as happy paths.
