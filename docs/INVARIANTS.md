@@ -19,7 +19,7 @@ Encoding strategy and its alternatives: [ADR-0005](../adr/ADR-0005-invariants-as
 | I3 — improvement reported only against measurement error      | **Yes**             |
 | I4 — neutral reference and calibration versioned per session  | **Yes**             |
 | I5 — camera/torso motion separated or the trial is rejected   | Partial (gate only) |
-| I6 — raw frames not transmitted or retained by default        | Not yet             |
+| I6 — raw frames not transmitted or retained by default        | **Yes**             |
 | I7 — clinical thresholds require an authoritative citation    | **Yes**             |
 
 ## I2 — A measurement is withheld when geometry or pose confidence fails
@@ -182,6 +182,49 @@ currently shows no clinical threshold at all.** That is what makes this invarian
 than decorative. `WINNING_IDEA.md` requires verifying that number against its primary source before
 it goes on screen; until someone does, the gate holds the line.
 
+## I6 — Raw frames are not transmitted or retained by default
+
+**Encoded by removing the capability from the bundle.** A promise about runtime behaviour cannot be
+checked by a compiler, and a network capture only proves what did not happen on the paths the
+capture exercised. So the policy deletes the means rather than forbidding the act:
+
+1. **No shipped source may reference a network API.** With no `fetch`, `XMLHttpRequest`,
+   `WebSocket`, `EventSource`, `WebTransport`, `RTCPeerConnection`, `RTCDataChannel`,
+   `sendBeacon`, or `importScripts` anywhere in `src/`, there is no code path that can send
+   anything anywhere — on the happy path or on an error path.
+2. **No shipped source may reference a frame-serialization API.** With no `toDataURL`, `toBlob`,
+   `convertToBlob`, `getImageData`, `captureStream`, or `MediaRecorder`, a video frame cannot be
+   turned into bytes in the first place.
+
+Frame egress is therefore unreachable rather than merely unintended, including from code a future
+contributor adds outside the camera path.
+
+- Policy: `scripts/egress-policy.mjs` — 15 prohibited names across two rules, **zero exemptions**.
+- Gate: `scripts/check-egress.mjs` walks the TypeScript AST of every shipped `src/**/*.ts` file and
+  runs inside `npm run lint`, which runs inside `verify-all`.
+- Runtime counterpart: the Playwright check in `tests/e2e/readiness.spec.ts` asserts no third-party
+  request occurs during the readiness workflow.
+
+| Attack                                                         | Named test                                                                             | Cases |
+| -------------------------------------------------------------- | -------------------------------------------------------------------------------------- | ----- |
+| Eleven plausible egress paths, one per prohibited capability   | `flags every sample with its rule code`                                                | 11    |
+| Egress reached through a member access rather than a bare name | `catches a prohibited API reached through a member access, not only a bare identifier` | 2     |
+| Clean code must not be flagged                                 | `permits code that performs no egress`                                                 | 3     |
+| A local sharing a prohibited name must not be flagged          | `does not flag a declaration that merely shares a prohibited name`                     | 2     |
+| The shipped bundle itself must be clean                        | `finds no prohibited API anywhere in shipped source`                                   | 1     |
+| The policy must have no holes                                  | `holds no exemptions, so the policy has no holes to inspect`                           | 1     |
+
+**The gate has been observed failing.** Adding a `uploadFrame` helper calling
+`fetch('https://example.test/frames', { body: blob, method: 'POST' })` to `src/main.ts` produced
+`EGRESS_POLICY_VIOLATION EGRESS_NETWORK_API location=src/main.ts:10 api="fetch"` and exit code 1;
+restoring the file returned `egress-check passed files=9 prohibited-apis=15 exemptions=0`.
+
+**Honest limits.** This is a name check, not a taint analysis. `globalThis['fet' + 'ch']` would
+evade it, as would anything short of full data-flow tracking. It makes frame egress something a
+contributor has to work at rather than something reachable by accident, and the end-to-end network
+assertion covers the runtime side. Retention through `sessionStorage` of _derived_ values is
+permitted by design — the invariant is about frames, and no frame can be serialized to store.
+
 ## I5 — Camera and torso movement are separated from intended head rotation
 
 **Partially encoded.** The quality gate refuses a trial whose endpoint window shows camera motion or
@@ -195,13 +238,10 @@ computes that attribution or proves it is correct. Until `src/vision` exists, th
 enforced only against inputs that are already honest, which is not enforcement. It is recorded as
 partial for that reason.
 
-## I6 — Not yet encoded
+## Remaining work
 
-Named here so its absence is visible rather than implied:
-
-- **I6 — raw frames not transmitted or retained.** The E2E check proves no third-party request
-  occurs on the readiness path, but no camera is opened yet, so nothing about the frame path is
-  currently provable.
+I5 is the only invariant not fully encoded. It is not a documentation gap — it is blocked on
+`src/vision` existing, and it is described in its own section above.
 
 ## How to extend this register
 

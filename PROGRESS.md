@@ -299,3 +299,56 @@ The build gate is a `.mjs` script and the runtime screen is a `.ts` domain modul
 ### Next item selected by §10.1
 
 Encode I6 — raw frames are not transmitted or retained by default — by removing the capability from the bundle rather than promising the behaviour: a build-time egress gate that fails on any reference to a network API or a frame-serialization API anywhere in shipped source. With no `fetch`, `WebSocket`, `sendBeacon`, `MediaRecorder`, `toDataURL` or `toBlob` reachable, frame egress becomes unreachable rather than merely unintended, on error paths as well as happy paths.
+
+## 2026-08-10 18:40 PDT — I6 encoded by removing the capability; crash cleanup made idempotent
+
+### Behaviour delivered — I6
+
+- **I6 — raw frames are not transmitted or retained by default.** Encoded by deleting the means rather than forbidding the act. `scripts/check-egress.mjs` walks the TypeScript AST of every shipped `src/**/*.ts` file and fails on any reference to a network API (`fetch`, `XMLHttpRequest`, `WebSocket`, `EventSource`, `WebTransport`, `RTCPeerConnection`, `RTCDataChannel`, `sendBeacon`, `importScripts`) or a frame-serialization API (`toDataURL`, `toBlob`, `convertToBlob`, `getImageData`, `captureStream`, `MediaRecorder`). Fifteen prohibited names, **zero exemptions**. With no transport reachable and no way to turn a frame into bytes, frame egress is unreachable rather than merely unintended — on error paths as well as happy paths, and in code added outside the camera path.
+- Wired into `npm run lint`, which runs inside `verify-all`.
+
+### The egress gate was observed failing
+
+Adding a `uploadFrame` helper calling `fetch('https://example.test/frames', { body: blob, method: 'POST' })` to `src/main.ts` produced:
+
+```
+EGRESS_POLICY_VIOLATION EGRESS_NETWORK_API location=src/main.ts:10 api="fetch" reason="this tool performs no network input or output at runtime, ..."
+egress-check failed violations=1
+```
+
+Restoring the file returned `egress-check passed files=9 prohibited-apis=15 exemptions=0`. `git diff --stat src/main.ts` confirmed the file was left unmodified.
+
+**Honest limit:** this is a name check, not a taint analysis. `globalThis['fet' + 'ch']` would evade it, as would anything short of full data-flow tracking. It makes frame egress something a contributor has to work at rather than something reachable by accident; the Playwright no-third-party-request assertion covers the runtime side.
+
+### A real operational defect the integration suite exposed
+
+`npm run verify-all` failed at `test-integration` with four simultaneous `PID_OWNERSHIP_REFUSED` errors. The cause was not the new code: the host had lost the previously started services, leaving records pointing at PIDs that no longer existed. **`dev:down` could not clean up after a crash** — it refused those records forever and a human had to delete files by hand. That contradicts `AGENTS.md`'s requirement that cleanup after cancellation or crash be idempotent.
+
+- Added `processAbsent`, which distinguishes `ESRCH` from `EPERM`. The existing `processExists` treats every `kill(0)` failure as absence — the safe direction for "may I signal this?", the unsafe direction for "may I forget this?", because `EPERM` means the PID is live and owned by another user.
+- Added `releaseStaleRecord`, which removes a record only after the operating system reports the PID absent **and** the configured port has no listener under it. **No signal is sent on that path**, so it cannot terminate anything. A PID that exists but is not verifiably owned still refuses with `PID_OWNERSHIP_REFUSED`, unchanged.
+- Added the `crash-cleanup` integration case: `SIGKILL` all four owned services, assert the records survive the kill, assert `dev:down` clears them, then run `dev:down` again to prove idempotence.
+
+### A second finding: an orphaned owned process
+
+The next run failed differently — `FOREIGN_PORT_LISTENER port=4183`, PID 60038. That process had survived the earlier crash with its record already deleted, so `dev:down` skipped it silently and `dev:preflight` correctly refused. The system was right: a record is not authority, and this host runs fifteen sibling repositories.
+
+Reconciled per `GOAL.md` §0A.2.5 by verifying identity from the operating system before signalling — `ps -o command=` showed `.dev/toolchain/…/node …/scripts/dev/fixture-server.mjs --port 4183` and `lsof -d cwd` showed this repository's root — then stopping that one PID. No sweep was used; `pkill`, `killall`, and every broad-kill equivalent remain prohibited.
+
+### A gate caught my own omission
+
+After rewriting a lifecycle test I ran `vitest` but not `typecheck`, and `dev:up` failed on `TS2345`: the test's inline service definition used `id: string` rather than `ServiceId`, and its record was missing eleven required fields. The build refused to proceed on a test fixture that only looked right. Both were fixed by constructing a real `ServiceDefinition` and a complete `PidRecord` rather than by loosening a type.
+
+### Commands run and observed results
+
+- `npm run check:egress` — `egress-check passed files=9 prohibited-apis=15 exemptions=0 scope=src/**/*.ts`.
+- `npx vitest run scripts/egress-policy.test.mjs` — 10 tests covering 11 prohibited-code samples, member-access reach, clean code, and declaration names that merely share a prohibited word.
+- `npm run typecheck`, `npm run lint` — clean, including `copy-check` and the new `egress-check`.
+- `npm run test-integration` — re-run with the new `crash-cleanup` case after the port block was reconciled.
+
+### Documentation corrected
+
+`SUPPORT_MATRIX.md` claimed canonical verification was **red at `check:build` on commit `e9e7070`**. That has been untrue since CI run 31427300557 went green; documentation drift is a defect of the same severity as a failing test. The row now records the green run and its rerun command, and rows were added for the copy and egress gates. A note was added that implemented domain rules are **not** a validated measurement, so no reader mistakes Tier 1 progress for a supported instrument.
+
+### Next item selected by §10.1
+
+Six of seven invariants are encoded. I5 is the last, and it is not a documentation gap: it needs `src/vision` to actually *separate* head rotation from torso and camera motion, rather than receiving an observation with that attribution already made. That is Tier 2's hard technical core, and `WINNING_IDEA.md` names the kill test that must precede it — validating webcam differential head rotation against an independent gyroscope ground truth, with a stated stop rule at 1.5 degrees RMS.

@@ -614,6 +614,56 @@ export function processExists(pid) {
   }
 }
 
+/**
+ * True only when the operating system reports that no such process exists.
+ *
+ * `processExists` treats every `process.kill(pid, 0)` failure as absence, which is the safe
+ * direction for "should I signal this?" but the *unsafe* direction for "may I discard this
+ * record?": `EPERM` means the PID is live and owned by another user. Releasing a record on that
+ * basis would let this repository forget a process it can still see.
+ *
+ * @param {number} pid
+ * @returns {boolean}
+ */
+export function processAbsent(pid) {
+  try {
+    process.kill(pid, 0);
+    return false;
+  } catch (error) {
+    return (
+      typeof error === 'object' &&
+      error !== null &&
+      /** @type {NodeJS.ErrnoException} */ (error).code === 'ESRCH'
+    );
+  }
+}
+
+/**
+ * Releases a record whose process no longer exists.
+ *
+ * Cleanup after a crash has to be idempotent. If the host slept, the terminal was killed, or a
+ * service died on its own, the record left behind is stale, and without this path `dev:down`
+ * refuses forever with `PID_OWNERSHIP_REFUSED` and needs a human to delete files by hand.
+ *
+ * **No signal is sent on this path.** The record is removed only after the operating system
+ * reports the PID absent and the configured port is confirmed to have no listener under it, so
+ * this cannot terminate anything — least of all a sibling repository's process.
+ *
+ * @param {ServiceDefinition} definition
+ * @param {PidRecord} record
+ * @returns {boolean} true when a stale record was released
+ */
+export function releaseStaleRecord(definition, record) {
+  if (!processAbsent(record.pid)) {
+    return false;
+  }
+  if (listenerPids(record.port).includes(record.pid)) {
+    throw new Error(`PID_STALE_RELEASE_REFUSED service=${definition.id} pid=${record.pid}`);
+  }
+  removePidRecord(definition.id);
+  return true;
+}
+
 /** @param {number} pid @returns {string | null} */
 export function processStart(pid) {
   if (!processExists(pid)) {

@@ -5,6 +5,7 @@ import {
   formatErrorChain,
   pidRecordPath,
   readPidRecord,
+  releaseStaleRecord,
   removePidRecord,
   runPreflight,
   serviceDefinitions,
@@ -28,6 +29,12 @@ try {
     }
 
     try {
+      // A crashed or host-slept service leaves a record behind. Clearing it sends no signal and
+      // keeps shutdown idempotent; refusing it forever would need a human to delete files by hand.
+      if (releaseStaleRecord(definition, record)) {
+        console.log(`dev:down cleared stale record service=${definition.id} pid=${record.pid}`);
+        continue;
+      }
       await stopOwnedRecord(definition, record);
       console.log(`dev:down stopped service=${definition.id} pid=${record.pid}`);
     } catch (error) {

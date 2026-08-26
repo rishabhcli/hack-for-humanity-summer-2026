@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Cervical Joint Position Error &mdash; on-device proprioception test</title>
+<link rel="stylesheet" href="./css/app.css" />
+</head>
+<body>
+
+<div class="topbar">
+  <div class="brand">
+    <h1>Cervical Joint Position Error</h1>
+    <div class="sub">Eyes-closed head repositioning test &middot; measures its own noise before it reports your change</div>
+  </div>
+  <div class="badges">
+    <span class="badge ok" id="privacyBadge"><i class="dot"></i>On device &middot; no frame leaves this machine</span>
+    <span class="badge" id="modelBadge"><i class="dot"></i>Loading model&hellip;</span>
+    <span class="badge live" id="sourceBadge"><i class="dot"></i>No source</span>
+  </div>
+</div>
+
+<div id="replayBanner">
+  <span class="tag">REPLAY</span>
+  <span id="replayText"></span>
+</div>
+
+<div class="wrap">
+  <!-- ================= LEFT ================= -->
+  <div class="col">
+    <div class="card">
+      <header>
+        <h2>Camera</h2>
+        <span class="right" id="camMeta">&mdash;</span>
+      </header>
+      <div class="stage" id="stage">
+        <video id="video" playsinline muted class="hidden"></video>
+        <canvas id="overlay"></canvas>
+        <div class="stagemsg" id="stageMsg">Start the live camera, or load a replay stream to see the pipeline run without a camera.</div>
+      </div>
+      <div class="qstrip" id="qstrip"></div>
+    </div>
+
+    <div class="card">
+      <header><h2>Measurement session</h2><span class="right" id="sessMeta">&mdash;</span></header>
+      <div class="body">
+        <div class="phase">
+          <span class="name" id="phaseName">idle</span>
+          <span class="prog" id="phaseProg"></span>
+        </div>
+        <div class="instruction" id="instruction">Calibrate the noise floor first, then run the test.</div>
+        <div class="countdown" id="countdown"></div>
+        <div class="track" id="track"></div>
+        <div class="btnrow">
+          <button class="b primary" id="btnCam">Start live camera</button>
+          <select class="b" id="replaySel">
+            <option value="">Load replay stream&hellip;</option>
+          </select>
+          <button class="b" id="btnCalib" disabled>Calibrate noise floor</button>
+          <button class="b primary" id="btnRun" disabled>Run 8-trial protocol</button>
+          <button class="b" id="btnStop" disabled>Stop</button>
+          <label class="badge" style="cursor:pointer"><input type="checkbox" id="chkSpeech" checked style="margin:0 4px 0 0" />Spoken cues</label>
+          <label class="badge" style="cursor:pointer"><input type="checkbox" id="chkTone" checked style="margin:0 4px 0 0" />Tones</label>
+        </div>
+      </div>
+    </div>
+
+    <div class="safety">
+      <strong>This is not a diagnostic tool.</strong> It does not detect, diagnose, rule out or grade whiplash,
+      concussion, or any other condition, and it is not a substitute for assessment by a clinician. Joint position
+      error is a recognised research and clinical measure of cervical proprioception, and repositioning error is
+      reported as elevated in whiplash-associated disorder, chronic neck pain and after concussion. That is a
+      statement about the <em>clinical test</em>, not about this webcam implementation, which has not been validated
+      against instrumented laboratory measurement or in any patient population. Use it to watch your own numbers over
+      time, and take anything that concerns you to a professional. Stop if any movement causes pain or dizziness, and
+      perform the test seated.
+    </div>
+  </div>
+
+  <!-- ================= RIGHT ================= -->
+  <div class="col">
+    <div class="card">
+      <div class="tabs" id="tabs">
+        <button data-p="results" class="on">Results</button>
+        <button data-p="history">History &amp; MDC</button>
+        <button data-p="validation">Validation</button>
+        <button data-p="about">Method</button>
+      </div>
+
+      <div class="pane on" id="p-results">
+        <div class="body">
+          <div class="kpis" id="resKpis"></div>
+          <canvas class="chart" id="scatter" height="330"></canvas>
+          <div class="legend">
+            <span><i style="background:#0d6a75"></i>Left rotation</span>
+            <span><i style="background:#9a5a08"></i>Right rotation</span>
+            <span><i style="background:#1d6b43"></i>Extension</span>
+            <span><i style="background:#9c2323"></i>Flexion</span>
+            <span><i style="background:#b9c4cd"></i>Noise-floor ring</span>
+          </div>
+          <div class="hr"></div>
+          <div id="resTable"></div>
+        </div>
+      </div>
+
+      <div class="pane" id="p-history">
+        <div class="body">
+          <div class="kpis" id="relKpis"></div>
+          <canvas class="chart" id="history" height="300"></canvas>
+          <div class="legend">
+            <span><i style="background:#0d6a75"></i>Session mean JPE</span>
+            <span><i style="background:#cfe0e2"></i>MDC<sub>95</sub> band around the first session</span>
+            <span><i style="background:#6a3fa0"></i>Replay-sourced session</span>
+          </div>
+          <div id="verdict"></div>
+          <div class="hr"></div>
+          <div id="histTable"></div>
+          <div class="btnrow">
+            <button class="b" id="btnSeed">Seed 4 prior sessions</button>
+            <button class="b" id="btnClear">Clear stored sessions</button>
+          </div>
+          <div class="note" style="margin-top:10px">
+            Sessions live in this browser's IndexedDB and nowhere else. Clearing them is permanent.
+          </div>
+        </div>
+      </div>
+
+      <div class="pane" id="p-validation">
+        <div class="body">
+          <div class="note" style="margin-bottom:10px">
+            <strong>What the numbers below are.</strong> There is no motion-capture ground truth here. The sweep takes
+            MediaPipe's canonical face mesh, applies a rotation <em>we chose</em>, projects it through a pinhole camera
+            with per-landmark Gaussian noise, and feeds the result to the same <code>estimatePose()</code> the live
+            camera uses. The error is recovered angle minus imposed angle. It measures the estimator's geometry and
+            noise propagation &mdash; <em>not</em> MediaPipe's landmark error on real skin, and not this tool's validity
+            against a clinical instrument.
+          </div>
+          <div class="btnrow" style="margin-top:0">
+            <button class="b primary" id="btnVal">Run synthetic sweep</button>
+            <button class="b" id="btnValDiff">Run differential sweep</button>
+            <button class="b" id="btnValReal">Real-face cross-check</button>
+          </div>
+          <div id="valOut" style="margin-top:12px"></div>
+        </div>
+      </div>
+
+      <div class="pane" id="p-about">
+        <div class="body note" id="aboutBody"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script type="module" src="./js/main.js"></script>
+</body>
+</html>

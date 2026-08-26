@@ -19,6 +19,8 @@ import {
   expectedProcessCommand,
   fileDigest,
   formatErrorChain,
+  processAbsent,
+  releaseStaleRecord,
   isValidPidRecord,
   isExclusiveLoopbackListener,
   parseLsofListenerRecords,
@@ -218,5 +220,43 @@ describe('readiness failure diagnostics', () => {
   it('describes a non-error rejection rather than printing an empty message', () => {
     expect(formatErrorChain('socket hang up')).toBe('socket hang up');
     expect(formatErrorChain(undefined)).toBe('');
+  });
+});
+
+describe('crash cleanup is idempotent', () => {
+  it('reports absence only for a PID the operating system says is gone', () => {
+    expect(processAbsent(process.pid)).toBe(false);
+    // PID 1 exists on every POSIX host and is not ours: kill(0) yields EPERM, not ESRCH. Treating
+    // that as absence would let this repository forget a process it can still see.
+    expect(processAbsent(1)).toBe(false);
+    expect(processAbsent(0x7ff_ffff)).toBe(true);
+  });
+
+  it('refuses to release a record whose process is still alive', () => {
+    const [liveDefinition] = serviceDefinitions(parsePortsEnv(validConfig));
+    if (liveDefinition === undefined) {
+      throw new Error('TEST_SERVICE_DEFINITION_MISSING');
+    }
+
+    // No record file is touched: a live PID short-circuits before removal is even considered.
+    expect(
+      releaseStaleRecord(liveDefinition, {
+        artifactDigest: 'a'.repeat(64),
+        certificateDigest: 'b'.repeat(64),
+        configDigest: 'c'.repeat(64),
+        host: '127.0.0.1',
+        ownershipToken: 'd'.repeat(64),
+        pid: process.pid,
+        port: liveDefinition.port,
+        processCommand: expectedProcessCommand(liveDefinition),
+        processStart: 'Mon Aug 10 00:00:00 2026',
+        readinessSecret: 'e'.repeat(64),
+        repositoryRoot: REPOSITORY_ROOT,
+        runId: '00000000-0000-4000-8000-000000000000',
+        schemaVersion: 2,
+        service: liveDefinition.id,
+        startedAt: '2026-08-10T07:00:00.000Z',
+      }),
+    ).toBe(false);
   });
 });

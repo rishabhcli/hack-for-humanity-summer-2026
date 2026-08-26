@@ -432,10 +432,39 @@ try {
   }
   runScript('dev:health', { expectSuccess: false, expectedText: 'DEV_HEALTH_DEADLINE' });
 
+  // Crash cleanup. A host that sleeps, a killed terminal, or a service that dies on its own leaves
+  // records behind pointing at PIDs that no longer exist. Before this case existed, `dev:down`
+  // refused those forever with PID_OWNERSHIP_REFUSED and a human had to delete files by hand.
+  runScript('dev:up');
+  const crashedRecords = serviceDefinitions().map((definition) => {
+    const record = readPidRecord(definition);
+    if (record === null) {
+      throw new Error(`INTEGRATION_CRASH_RECORD_MISSING service=${definition.id}`);
+    }
+    return { definition, record };
+  });
+  for (const { record } of [...crashedRecords].reverse()) {
+    process.kill(record.pid, 'SIGKILL');
+    await waitForExit(record.pid);
+  }
+  for (const { definition } of crashedRecords) {
+    if (readPidRecord(definition) === null) {
+      throw new Error(`INTEGRATION_CRASH_RECORD_VANISHED service=${definition.id}`);
+    }
+  }
+  runScript('dev:down');
+  for (const { definition } of crashedRecords) {
+    if (existsSync(pidRecordPath(definition.id))) {
+      throw new Error(`INTEGRATION_CRASH_RECORD_NOT_CLEARED service=${definition.id}`);
+    }
+  }
+  // Idempotence: a second shutdown over an already-clean tree must also succeed.
+  runScript('dev:down');
+
   runScript('dev:up');
   runScript('dev:health');
   console.log(
-    'test-integration passed cases=tls-mismatch-recovery,log-symlink-refusal,serialized-lock,stale-pid,forged-same-cwd-pid,wrong-ownership-environment,foreign-listener,health-timeout,retention,stale-artifact-health,artifact-drift-restart,owned-down,restore',
+    'test-integration passed cases=tls-mismatch-recovery,log-symlink-refusal,serialized-lock,stale-pid,forged-same-cwd-pid,wrong-ownership-environment,foreign-listener,health-timeout,retention,stale-artifact-health,artifact-drift-restart,owned-down,crash-cleanup,restore',
   );
 } finally {
   if (lockHolder?.pid !== undefined && processExists(lockHolder.pid)) {
